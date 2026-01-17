@@ -1,0 +1,32 @@
+[package]
+name = "halls"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winit = { version = "0.30", features = ["serde"] }
+pollster = "0.4"
+wgpu = "23"
+glam = { version = "0.29", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+dot_vox = "5.1.1"
+include_dir = "0.7"
+ureq = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = { version = "2", features = ["serde"] }
+lru = "0.12"
+tobj = "4"
+gltf = "1"
+image = "0.25"
+parry3d = "0.17"
+rodio = "0.20"
+fastrand = "2"
+strum = { version = "0.26", features = ["derive"] }
+
+[lints.clippy]
+module_inception = "allow"
+needless_return = "allow"
+upper_case_acronyms = "allow"

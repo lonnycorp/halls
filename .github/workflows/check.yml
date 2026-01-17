@@ -1,0 +1,31 @@
+name: Check
+
+on: [push]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libwayland-dev \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config
+
+      - run: cargo check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test
