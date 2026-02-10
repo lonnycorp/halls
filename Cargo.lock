@@ -750,18 +750,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dot_vox"
-version = "5.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd05cab02d6074145c6f92ddf1b57357e4bc1424f87c790c044de62bdc94c13a"
-dependencies = [
- "ahash",
- "lazy_static",
- "log",
- "nom 7.1.3",
-]
-
-[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -873,12 +861,6 @@ dependencies = [
  "smallvec",
  "zune-inflate",
 ]
-
-[[package]]
-name = "fastrand"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "fax"
@@ -1188,14 +1170,11 @@ name = "halls"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "dot_vox",
  "env_logger",
- "fastrand",
  "glam",
  "gltf",
  "image",
  "include_dir",
- "log",
  "lru",
  "parry3d",
  "pollster",
@@ -1203,7 +1182,6 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
- "tobj",
  "ureq",
  "url",
  "wgpu",
@@ -3269,15 +3247,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "tobj"
-version = "4.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04aca6092e5978e708ee784e8ab9b5cf3cdb598b28f99a2f257446e7081a7025"
-dependencies = [
- "ahash",
-]
 
 [[package]]
 name = "toml_datetime"
