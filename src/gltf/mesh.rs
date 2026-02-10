@@ -1,5 +1,6 @@
 use glam::{Mat4, Vec2, Vec3};
 
+use super::material::GLTFMaterial;
 use super::vertex::GLTFVertex;
 
 pub struct GLTFMesh {
@@ -8,7 +9,7 @@ pub struct GLTFMesh {
     lightmap_uvs: Vec<f32>,
     indices: Vec<u32>,
     material_indices: Vec<Option<u32>>,
-    materials: Vec<String>,
+    materials: Vec<GLTFMaterial>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,9 +32,21 @@ impl GLTFMesh {
             _ => return Err(GLTFMeshError::MultipleScenes),
         };
 
-        let materials: Vec<String> = document
+        let materials: Vec<GLTFMaterial> = document
             .materials()
-            .map(|m| m.name().unwrap_or("unnamed").to_string())
+            .map(|material| {
+                let base_color = material.pbr_metallic_roughness().base_color_factor();
+                let color = [
+                    (base_color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (base_color[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (base_color[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (base_color[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                ];
+                return GLTFMaterial {
+                    name: material.name().unwrap_or("unnamed").to_string(),
+                    color,
+                };
+            })
             .collect();
 
         let mut mesh = GLTFMesh {
@@ -65,7 +78,7 @@ impl GLTFMesh {
         return self.indices.len();
     }
 
-    pub fn materials(&self) -> &[String] {
+    pub fn materials(&self) -> &[GLTFMaterial] {
         return &self.materials;
     }
 

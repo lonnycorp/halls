@@ -59,6 +59,28 @@ fn test_valid_manifest_without_optional_meta_fields() {
 }
 
 #[test]
+fn test_manifest_without_material_defaults_to_empty_map() {
+    let json = r#"{
+        "_version": "coco",
+        "meta": {
+            "name": "Test Level"
+        },
+        "level": {
+            "model": "level.glb"
+        },
+        "portal": {
+            "p1": { "model": "p1.glb", "link": "a.json#x", "spawn": true }
+        }
+    }"#;
+
+    let result = LevelManifest::load(json.as_bytes());
+    assert!(result.is_ok());
+
+    let manifest = result.unwrap();
+    assert!(manifest.level.material.is_empty());
+}
+
+#[test]
 fn test_manifest_without_portals() {
     let json = r#"{
         "_version": "coco",

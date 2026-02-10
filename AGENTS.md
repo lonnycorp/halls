@@ -4,11 +4,14 @@
 
 - Keep code minimal; don't add features, flags, or abstractions unless explicitly asked
 - Err on the side of creating a plan before implementing
-- When intent is ambiguous, confirm before coding; default to planning first
 - Avoid defensive code; don't add conditionals or checks "just in case"
 - Let errors panic and fail rather than handling hypothetical upstream issues
 - Don't proactively create helper methods; prefer inline code unless a code path is used multiple times
 - Only extract helpers when there is explicit, demonstrated reuse - not "just in case"
+
+## Working Method
+
+- Always default to planning; only write code after the user is happy and has explicitly signed off.
 
 ## Code Style
 
@@ -24,4 +27,3 @@
 - No single-line `if` bodies; always use braces on the next line
 - Use `cargo fmt` to ensure code is correctly formatted
 - Use `cargo clippy` to ensure we don't introduce *unexpected* warnings
-

@@ -28,6 +28,9 @@ fn find_texture_bucket(w: u32, h: u32) -> Option<usize> {
         .position(|b| b.width == w && b.height == h);
 }
 
+const FALLBACK_TEXTURE_SIZE: u32 = 64;
+const WHITE_RGBA: [u8; 4] = [255, 255, 255, 255];
+
 pub struct Level {
     pub(super) state: LevelState,
 }
@@ -139,6 +142,8 @@ impl Level {
         let mut material_index_data = MaterialIndexStorageBufferData::new();
         let mut next_free: [usize; TEXTURE_BUCKETS.len()] = [0; TEXTURE_BUCKETS.len()];
         let mut path_to_texture_id: HashMap<String, u32> = HashMap::new();
+        let fallback_bucket_ix =
+            find_texture_bucket(FALLBACK_TEXTURE_SIZE, FALLBACK_TEXTURE_SIZE).unwrap();
 
         if mesh.materials().is_empty() {
             return Err(LevelLoadError::NoMaterials);
@@ -148,64 +153,85 @@ impl Level {
             return Err(LevelLoadError::TooManyMaterials);
         }
 
-        for (ix, material_name) in mesh.materials().iter().enumerate() {
-            let material = manifest
-                .level
-                .material
-                .get(material_name)
-                .ok_or_else(|| LevelLoadError::MissingMaterial(material_name.clone()))?;
+        for (ix, material_info) in mesh.materials().iter().enumerate() {
+            if let Some(material) = manifest.level.material.get(&material_info.name) {
+                let (frame_paths, animation_speed) = material.frame_data();
+                let mut frames: Vec<u32> = Vec::with_capacity(frame_paths.len());
 
-            let (frame_paths, animation_speed) = material.frame_data();
-            let mut frames: Vec<u32> = Vec::with_capacity(frame_paths.len());
+                for image_path in frame_paths {
+                    if let Some(&cached_id) = path_to_texture_id.get(image_path) {
+                        frames.push(cached_id);
+                        continue;
+                    }
 
-            for image_path in frame_paths {
-                if let Some(&cached_id) = path_to_texture_id.get(image_path) {
-                    frames.push(cached_id);
-                    continue;
-                }
+                    let material_url = base_url
+                        .join(image_path)
+                        .map_err(|_| LevelLoadError::URLInvalid(image_path.to_string()))?;
+                    let material_file =
+                        FetchedData::new(&material_url).map_err(|e| LevelLoadError::Fetch {
+                            asset: image_path.to_string(),
+                            error: e,
+                        })?;
+                    let img = image::load_from_memory(material_file.data())
+                        .map_err(|_| LevelLoadError::ImageLoadFailed {
+                            asset: image_path.to_string(),
+                        })?
+                        .to_rgba8();
+                    let (w, h) = img.dimensions();
 
-                let material_url = base_url
-                    .join(image_path)
-                    .map_err(|_| LevelLoadError::URLInvalid(image_path.to_string()))?;
-                let material_file =
-                    FetchedData::new(&material_url).map_err(|e| LevelLoadError::Fetch {
-                        asset: image_path.to_string(),
-                        error: e,
+                    let bucket_ix = find_texture_bucket(w, h).ok_or_else(|| {
+                        LevelLoadError::InvalidMaterialTextureDimensions(material_info.name.clone())
                     })?;
-                let img = image::load_from_memory(material_file.data())
-                    .map_err(|_| LevelLoadError::ImageLoadFailed {
-                        asset: image_path.to_string(),
-                    })?
-                    .to_rgba8();
-                let (w, h) = img.dimensions();
 
-                let bucket_ix = find_texture_bucket(w, h).ok_or_else(|| {
-                    LevelLoadError::InvalidMaterialTextureDimensions(material_name.clone())
-                })?;
+                    let layer = next_free[bucket_ix];
+                    if layer >= TEXTURE_BUCKETS[bucket_ix].layers {
+                        return Err(LevelLoadError::TextureBucketExhausted(
+                            material_info.name.clone(),
+                        ));
+                    }
 
-                let layer = next_free[bucket_ix];
-                if layer >= TEXTURE_BUCKETS[bucket_ix].layers {
-                    return Err(LevelLoadError::TextureBucketExhausted(
-                        material_name.clone(),
-                    ));
+                    diffuse[bucket_ix].write_texture(queue, layer, &img);
+                    next_free[bucket_ix] += 1;
+
+                    let texture_id = texture_index_data
+                        .write(bucket_ix as u32, layer as u32)
+                        .map_err(|_| {
+                            LevelLoadError::TextureIndexFull(material_info.name.clone())
+                        })?;
+                    path_to_texture_id.insert(image_path.to_string(), texture_id);
+                    frames.push(texture_id);
                 }
 
-                diffuse[bucket_ix].write_texture(queue, layer, &img);
-                next_free[bucket_ix] += 1;
-
-                let texture_id = texture_index_data
-                    .write(bucket_ix as u32, layer as u32)
-                    .map_err(|_| LevelLoadError::TextureIndexFull(material_name.clone()))?;
-                path_to_texture_id.insert(image_path.to_string(), texture_id);
-                frames.push(texture_id);
+                material_index_data
+                    .write(ix, animation_speed, &frames)
+                    .map_err(|_| LevelLoadError::MaterialIndexFull(material_info.name.clone()))?;
+                continue;
             }
 
+            let img = image::RgbaImage::from_pixel(
+                FALLBACK_TEXTURE_SIZE,
+                FALLBACK_TEXTURE_SIZE,
+                image::Rgba(material_info.color),
+            );
+            let layer = next_free[fallback_bucket_ix];
+            if layer >= TEXTURE_BUCKETS[fallback_bucket_ix].layers {
+                return Err(LevelLoadError::TextureBucketExhausted(
+                    material_info.name.clone(),
+                ));
+            }
+
+            diffuse[fallback_bucket_ix].write_texture(queue, layer, &img);
+            next_free[fallback_bucket_ix] += 1;
+
+            let texture_id = texture_index_data
+                .write(fallback_bucket_ix as u32, layer as u32)
+                .map_err(|_| LevelLoadError::TextureIndexFull(material_info.name.clone()))?;
             material_index_data
-                .write(ix, animation_speed, &frames)
-                .map_err(|_| LevelLoadError::MaterialIndexFull(material_name.clone()))?;
+                .write(ix, 0.0, &[texture_id])
+                .map_err(|_| LevelLoadError::MaterialIndexFull(material_info.name.clone()))?;
         }
 
-        let lightmap = match &manifest.level.lightmap {
+        let lightmap_texture_id = match &manifest.level.lightmap {
             Some(lightmap_path) => {
                 let lightmap_url = base_url
                     .join(lightmap_path)
@@ -231,12 +257,27 @@ impl Level {
                     ));
                 }
                 diffuse[bucket_ix].write_texture(queue, layer, &img);
-                let texture_id = texture_index_data
+                texture_index_data
                     .write(bucket_ix as u32, layer as u32)
-                    .map_err(|_| LevelLoadError::TextureIndexFull(lightmap_path.clone()))?;
-                Some(texture_id)
+                    .map_err(|_| LevelLoadError::TextureIndexFull(lightmap_path.clone()))?
             }
-            None => None,
+            None => {
+                let img = image::RgbaImage::from_pixel(
+                    FALLBACK_TEXTURE_SIZE,
+                    FALLBACK_TEXTURE_SIZE,
+                    image::Rgba(WHITE_RGBA),
+                );
+                let layer = next_free[fallback_bucket_ix];
+                if layer >= TEXTURE_BUCKETS[fallback_bucket_ix].layers {
+                    return Err(LevelLoadError::TextureBucketExhausted(
+                        "lightmap".to_string(),
+                    ));
+                }
+                diffuse[fallback_bucket_ix].write_texture(queue, layer, &img);
+                texture_index_data
+                    .write(fallback_bucket_ix as u32, layer as u32)
+                    .map_err(|_| LevelLoadError::TextureIndexFull("lightmap".to_string()))?
+            }
         };
 
         let texture_index = TextureIndexStorageBuffer::new(device);
@@ -302,7 +343,7 @@ impl Level {
                 texture_index,
                 material_index,
                 texture_bind_group,
-                lightmap,
+                lightmap_texture_id,
                 portals,
                 track,
             },

@@ -28,7 +28,6 @@ pub enum LevelLoadError {
         error: TrackDataError,
     },
     URLInvalid(String),
-    MissingMaterial(String),
     InvalidMaterialTextureDimensions(String),
     TextureBucketExhausted(String),
     TextureIndexFull(String),
@@ -57,9 +56,6 @@ impl std::fmt::Display for LevelLoadError {
                 return write!(f, "failed to load track {asset}: {error:?}")
             }
             LevelLoadError::URLInvalid(href) => return write!(f, "invalid url resolution: {href}"),
-            LevelLoadError::MissingMaterial(material) => {
-                return write!(f, "material {material} not found in manifest")
-            }
             LevelLoadError::InvalidMaterialTextureDimensions(material) => {
                 return write!(f, "invalid texture dimensions for material {material}")
             }

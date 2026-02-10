@@ -46,7 +46,7 @@ A level is a collection of assets linked together by a `manifest.json`. The mani
 
 ### Materials
 
-Each material referenced by the level model must have a corresponding entry in `level.material`. A material can be a static texture:
+Materials referenced by the level model can have entries in `level.material`. A material entry can be a static texture:
 
 ```json
 { "image": "texture.png" }
@@ -60,7 +60,7 @@ Or an animated texture that cycles through a series of frames:
 
 ### Requirements
 
-All geometry in the level model must have an assigned material with a base color image texture. This does not apply to collider or portal meshes. Texture dimensions must be one of the following sizes, each with a maximum number of textures per level:
+If a level material is missing from `level.material`, the engine uses the glTF material base color and creates a fallback 64x64 texture automatically. If `level.lightmap` is missing, the engine uses a fallback 64x64 white lightmap. Texture dimensions must be one of the following sizes, each with a maximum number of textures per level:
 
 | Size      | Max |
 |-----------|-----|

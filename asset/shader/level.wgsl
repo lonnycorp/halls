@@ -99,15 +99,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let diffuse_color = textureSample(diffuse[array_ix], diffuse_sampler, in.diffuse_uv, layer_ix);
 
-    var light: vec4<f32>;
-    if (pc.lightmap_texture_id != 0xFFFFFFFFu) {
-        let lm_entry = texture_index.entries[pc.lightmap_texture_id];
-        let lm_array_ix = lm_entry.bucket;
-        let lm_layer_ix = lm_entry.layer;
-        light = textureSample(diffuse[lm_array_ix], diffuse_sampler, in.lightmap_uv, lm_layer_ix);
-    } else {
-        light = vec4(1.0);
-    }
+    let lm_entry = texture_index.entries[pc.lightmap_texture_id];
+    let lm_array_ix = lm_entry.bucket;
+    let lm_layer_ix = lm_entry.layer;
+    let light = textureSample(diffuse[lm_array_ix], diffuse_sampler, in.lightmap_uv, lm_layer_ix);
 
     return diffuse_color * light;
 }

@@ -12,6 +12,13 @@ use crate::graphics::uniform::{UniformCamera, UniformCameraData};
 use crate::level::cache::{LevelCache, LevelCacheResult};
 use crate::level::portal::PortalModel;
 
+const CLEAR_COLOR: wgpu::Color = wgpu::Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 1.0,
+};
+
 #[derive(Default)]
 pub struct LevelRenderContextState {
     pub camera: u32,
@@ -97,12 +104,7 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                 view: color_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.5,
-                        g: 0.7,
-                        b: 0.9,
-                        a: 1.0,
-                    }),
+                    load: wgpu::LoadOp::Clear(CLEAR_COLOR),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -120,7 +122,7 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
         rp.set_pipeline(pipeline_level);
         state.texture_bind_group.bind(&mut rp);
         level_bind_group_config.bind(&mut rp, camera_offset);
-        bind_level_constants(&mut rp, tick, state.lightmap);
+        bind_level_constants(&mut rp, tick, state.lightmap_texture_id);
         state.model.draw(&mut rp);
     }
 

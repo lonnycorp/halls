@@ -20,7 +20,7 @@ pub struct LevelState {
     pub texture_index: TextureIndexStorageBuffer,
     pub material_index: MaterialIndexStorageBuffer,
     pub texture_bind_group: PipelineLevelBindGroupTexture,
-    pub lightmap: Option<u32>,
+    pub lightmap_texture_id: u32,
     pub portals: HashMap<String, LevelPortal>,
     pub track: Option<TrackData>,
 }
