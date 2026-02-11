@@ -1,0 +1,8 @@
+Package: halls
+Version: {version}
+Section: games
+Priority: optional
+Architecture: amd64
+Maintainer: LonnyCorp (timlonsdale@gmail.com)
+Homepage: https://lonny.io
+Description: {DESCRIPTION}

@@ -2,6 +2,10 @@
 name = "halls"
 version = "0.1.0"
 edition = "2021"
+authors = ["LonnyCorp (timlonsdale@gmail.com)"]
+description = "First-person exploration game of internet-hosted 3D spaces linked by URL portals."
+homepage = "https://lonny.io"
+license = "CC-BY-NC-ND-4.0"
 
 [dependencies]
 winit = { version = "0.30", features = ["serde"] }
@@ -18,9 +22,15 @@ url = { version = "2", features = ["serde"] }
 lru = "0.12"
 gltf = "1"
 image = "0.25"
+ico = "0.3"
 parry3d = "0.17"
 rodio = "0.20"
 strum = { version = "0.26", features = ["derive"] }
+
+[[bin]]
+name = "release"
+path = "release/main.rs"
+
 
 [lints.clippy]
 module_inception = "allow"

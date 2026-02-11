@@ -1,5 +1,5 @@
 .tasks
-.claude
-target
+target/
+dist/
 scratch/
 .DS_Store
