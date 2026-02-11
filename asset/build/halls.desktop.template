@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name={APP_NAME}
+Exec=halls
+Icon=halls
+Categories=Game;
+Terminal=false
+Comment={DESCRIPTION}

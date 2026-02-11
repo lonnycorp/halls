@@ -1,3 +1,6 @@
+// Avoid spawning a console window on Windows builds.
+#![windows_subsystem = "windows"]
+
 mod audio;
 mod config;
 mod gltf;

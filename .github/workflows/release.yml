@@ -4,6 +4,9 @@ on:
   release:
     types: [created]
 
+env:
+  RUST_BACKTRACE: "1"
+
 permissions:
   contents: write
 
@@ -12,35 +15,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - id: linux-build
-            os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            artifact: halls-linux-amd64.tar.gz
-          - id: mac-build
-            os: macos-14
-            target: aarch64-apple-darwin
-            artifact: halls-macos-arm64.tar.gz
-          - id: win-build
-            os: windows-2022
-            target: x86_64-pc-windows-msvc
-            artifact: halls-windows-amd64.zip
-    runs-on: ${{ matrix.os }}
+  check-version:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
+          TAG="${{ github.event.release.tag_name }}"
+          if [ "${TAG}" != "${VERSION}" ]; then
+            echo "Tag ${TAG} does not match Cargo.toml version ${VERSION}"
+            exit 1
+          fi
+
+  build-macos:
+    needs: check-version
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin
+
+      - name: Install dependencies
+        run: brew install imagemagick librsvg
+
+      - name: Package (macOS)
+        run: cargo run --bin release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: |
+            dist/halls-*-macos-*
+          if-no-files-found: error
+
+  build-linux:
+    needs: check-version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
 
       - name: Install system dependencies
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            libfuse2 \
+            librsvg2-bin \
             libx11-dev \
             libxi-dev \
             libxcursor-dev \
@@ -48,28 +75,52 @@ jobs:
             libwayland-dev \
             libasound2-dev \
             libudev-dev \
-            pkg-config
+            pkg-config \
+            imagemagick \
+            wget
 
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
-        run: tar czf ${{ matrix.artifact }} -C target/${{ matrix.target }}/release halls
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Compress-Archive -Path target/${{ matrix.target }}/release/halls.exe -DestinationPath ${{ matrix.artifact }}
+      - name: Package (Linux)
+        run: cargo run --bin release
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.id }}
-          path: ${{ matrix.artifact }}
+          name: linux-build
+          path: |
+            dist/halls-*-linux-*
+          if-no-files-found: error
+
+  build-windows:
+    needs: check-version
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          choco install imagemagick -y
+          choco install rsvg-convert -y
+          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+          refreshenv
+
+      - name: Package (Windows)
+        run: cargo run --bin release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-build
+          path: dist/halls-*-windows-*
           if-no-files-found: error
 
   release:
-    needs: build
+    needs:
+      - build-macos
+      - build-linux
+      - build-windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -80,5 +131,6 @@ jobs:
         with:
           tag_name: ${{ github.event.release.tag_name }}
           files: |
-            dist/**/*.tar.gz
-            dist/**/*.zip
+            dist/**/halls-*-linux-*
+            dist/**/halls-*-macos-*
+            dist/**/halls-*-windows-*
