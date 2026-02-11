@@ -126,7 +126,7 @@ pub fn render_iconset(out_dir: &str, specs: &[IconSpec]) {
             .arg("1024")
             .arg("asset/build/logo.svg")
             .arg("-resize")
-            .arg(format!("{}x{}", spec.width(), spec.height()))
+            .arg(format!("{}x{}!", spec.width(), spec.height()))
             .arg(output)
             .status()
             .unwrap();

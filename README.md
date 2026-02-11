@@ -1,6 +1,10 @@
 Halls
 =====
 
+<p align="center">
+  <img src="asset/build/logo.svg" alt="Halls logo" width="220" />
+</p>
+
 Halls is a free, open-source first-person exploration game. Players can traverse 3D spaces hosted anywhere on the internet, linked by portals that are addressed by URL. There is no objective - just portals to step through and places to see!
 
 ## Usage
@@ -92,6 +96,7 @@ Levels are entirely static, so any static file host works for distribution. GitH
 
 ## Thanks
 
-- [JDWasabi](https://jdwasabi.itch.io/8-bit-16-bit-sound-effects-pack) — sound effects
-- [timmycakes](https://gamebanana.com/sounds/19212) — walking sound effects
-- [Jayvee Enaguas](https://www.dafont.com/pixel-operator.font) — font
+- [JDWasabi](https://jdwasabi.itch.io/8-bit-16-bit-sound-effects-pack) — Sound effects
+- [timmycakes](https://gamebanana.com/sounds/19212) — Walking sound effects
+- [Jayvee Enaguas](https://www.dafont.com/pixel-operator.font) — Font
+- Ji-Hoon Myung - SVG logo
