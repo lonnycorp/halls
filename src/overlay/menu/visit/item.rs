@@ -68,7 +68,9 @@ impl MenuVisitItem {
                     }
                     LevelCacheResult::Ready(level) => {
                         let portal = level.spawn();
-                        let spawn_pos = portal.center + portal.normal() * (WIDTH + EPSILON);
+                        let portal_geometry = portal.geometry();
+                        let spawn_pos =
+                            portal_geometry.center() + portal_geometry.normal() * (WIDTH + EPSILON);
                         ctx.player.set_position(spawn_pos);
                         ctx.player.set_level_url(visiting_url.clone());
                         state.clear();

@@ -1,35 +1,13 @@
-use std::f32::consts::FRAC_PI_2;
-
-use glam::{Vec2, Vec3};
 use parry3d::math::{Isometry, Vector};
-use parry3d::na::{UnitQuaternion, Vector3};
 use parry3d::query::{cast_shapes, ShapeCastHit, ShapeCastOptions};
-use parry3d::shape::Cuboid;
+use parry3d::shape::{Cuboid, TriMesh};
 use url::Url;
 
+use crate::graphics::model::Model;
 use crate::level::cache::{LevelCache, LevelCacheResult};
 
-use super::spec::PortalSpec;
+use super::geometry::PortalGeometry;
 use super::PortalLink;
-
-const EPSILON: f32 = 0.001;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PortalKind {
-    Wall,
-    Floor,
-    Ceiling,
-}
-
-impl PortalKind {
-    pub fn pitch(&self) -> f32 {
-        return match self {
-            PortalKind::Wall => 0.0,
-            PortalKind::Floor => -FRAC_PI_2,
-            PortalKind::Ceiling => FRAC_PI_2,
-        };
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum PortalError {
@@ -37,59 +15,51 @@ pub enum PortalError {
     DegenerateGeometry,
     NotCoplanar,
     TiltedPortal,
-    NotRectangularQuad,
-    MissingUV,
-    InconsistentUVs,
-    InvalidUVLayout,
-    RolledWallPortal,
+    InconsistentColors,
+    MissingAnchorColor,
+    AmbiguousAnchorColor,
+    UnstableAnchor,
 }
 
 pub struct LevelPortal {
-    pub name: String,
-    pub center: Vec3,
-    pub yaw: f32,
-    pub kind: PortalKind,
-    pub dimensions: Vec2,
-    collider: Cuboid,
-    isometry: Isometry<f32>,
-    pub link: Url,
+    name: String,
+    geometry: PortalGeometry,
+    model: Model,
+    collider: TriMesh,
+    link: Url,
 }
 
 impl LevelPortal {
-    pub fn new(name: String, spec: &PortalSpec, link: Url) -> Self {
-        let half_w = spec.dimensions.x / 2.0;
-        let half_h = spec.dimensions.y / 2.0;
-        let collider = Cuboid::new(Vector::new(half_w, half_h, 0.0));
-
-        let rotation = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), spec.yaw)
-            * UnitQuaternion::from_axis_angle(&Vector3::x_axis(), spec.kind.pitch());
-        let translation = Vector3::new(spec.center.x, spec.center.y, spec.center.z).into();
-        let isometry = Isometry::from_parts(translation, rotation);
-
+    pub fn new(
+        name: String,
+        geometry: PortalGeometry,
+        model: Model,
+        collider: TriMesh,
+        link: Url,
+    ) -> Self {
         return Self {
             name,
-            center: spec.center,
-            yaw: spec.yaw,
-            kind: spec.kind,
-            dimensions: spec.dimensions,
+            geometry,
+            model,
             collider,
-            isometry,
             link,
         };
     }
 
-    pub fn local_axes(&self) -> (Vec3, Vec3) {
-        let right = Vec3::new(-self.yaw.cos(), 0.0, self.yaw.sin());
-        let up = self.normal().cross(right);
-        return (right, up);
+    pub fn geometry(&self) -> &PortalGeometry {
+        return &self.geometry;
     }
 
-    pub fn normal(&self) -> Vec3 {
-        return match self.kind {
-            PortalKind::Wall => Vec3::new(self.yaw.sin(), 0.0, self.yaw.cos()),
-            PortalKind::Floor => Vec3::Y,
-            PortalKind::Ceiling => Vec3::NEG_Y,
-        };
+    pub fn name(&self) -> &str {
+        return &self.name;
+    }
+
+    pub fn link_url(&self) -> &Url {
+        return &self.link;
+    }
+
+    pub fn draw<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>) {
+        self.model.draw(rp);
     }
 
     pub fn sweep(
@@ -103,7 +73,7 @@ impl LevelPortal {
             pos,
             vel,
             shape,
-            &self.isometry,
+            &Isometry::identity(),
             &Vector::zeros(),
             &self.collider,
             ShapeCastOptions::with_max_time_of_impact(max_toi),
@@ -121,30 +91,15 @@ impl LevelPortal {
         };
         let dst_portal = level.portal(fragment)?;
 
-        // Validate kind compatibility: wall <=> wall, floor <=> ceiling
-        let compatible = matches!(
-            (&self.kind, &dst_portal.kind),
-            (PortalKind::Wall, PortalKind::Wall)
-                | (PortalKind::Floor, PortalKind::Ceiling)
-                | (PortalKind::Ceiling, PortalKind::Floor)
-        );
-        if !compatible {
+        if !self.geometry.matches(&dst_portal.geometry) {
             return None;
         }
 
-        // Validate matching dimensions (with epsilon tolerance)
-        if (self.dimensions - dst_portal.dimensions).length() > EPSILON {
-            return None;
-        }
-
-        return Some(PortalLink {
+        return Some(PortalLink::new(
             url,
-            portal_name: fragment.to_string(),
-            src_yaw: self.yaw,
-            src_center: self.center,
-            dst_yaw: dst_portal.yaw,
-            dst_center: dst_portal.center,
-            dst_kind: dst_portal.kind,
-        });
+            fragment.to_string(),
+            self.geometry.clone(),
+            dst_portal.geometry.clone(),
+        ));
     }
 }

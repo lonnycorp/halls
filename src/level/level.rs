@@ -18,7 +18,7 @@ use crate::graphics::texture::TextureArray;
 
 use super::error::LevelLoadError;
 use super::manifest::{LevelManifest, LevelManifestMeta};
-use super::portal::{LevelPortal, PortalSpec};
+use super::portal::{LevelPortal, PortalGeometry};
 use super::render::LevelRenderContext;
 use super::state::LevelState;
 
@@ -104,7 +104,7 @@ impl Level {
             asset: manifest.level.model.clone(),
             error: e,
         })?;
-        let mesh = GLTFMesh::new(model_file.data()).map_err(|e| LevelLoadError::Mesh {
+        let mesh = GLTFMesh::from_bytes(model_file.data()).map_err(|e| LevelLoadError::Mesh {
             asset: manifest.level.model.clone(),
             error: e,
         })?;
@@ -126,11 +126,12 @@ impl Level {
                         asset: collider_path.clone(),
                         error: e,
                     })?;
-                let collider_mesh =
-                    GLTFMesh::new(collider_file.data()).map_err(|e| LevelLoadError::Mesh {
+                let collider_mesh = GLTFMesh::from_bytes(collider_file.data()).map_err(|e| {
+                    LevelLoadError::Mesh {
                         asset: collider_path.clone(),
                         error: e,
-                    })?;
+                    }
+                })?;
                 TriMesh::from(&collider_mesh)
             }
             None => TriMesh::from(&mesh),
@@ -144,6 +145,22 @@ impl Level {
         let mut path_to_texture_id: HashMap<String, u32> = HashMap::new();
         let fallback_bucket_ix =
             find_texture_bucket(FALLBACK_TEXTURE_SIZE, FALLBACK_TEXTURE_SIZE).unwrap();
+        let fallback_image = image::RgbaImage::from_pixel(
+            FALLBACK_TEXTURE_SIZE,
+            FALLBACK_TEXTURE_SIZE,
+            image::Rgba(WHITE_RGBA),
+        );
+        let fallback_layer = next_free[fallback_bucket_ix];
+        if fallback_layer >= TEXTURE_BUCKETS[fallback_bucket_ix].layers {
+            return Err(LevelLoadError::TextureBucketExhausted(
+                "fallback".to_string(),
+            ));
+        }
+        diffuse[fallback_bucket_ix].write_texture(queue, fallback_layer, &fallback_image);
+        next_free[fallback_bucket_ix] += 1;
+        let fallback_texture_id = texture_index_data
+            .write(fallback_bucket_ix as u32, fallback_layer as u32)
+            .map_err(|_| LevelLoadError::TextureIndexFull("fallback".to_string()))?;
 
         if mesh.materials().is_empty() {
             return Err(LevelLoadError::NoMaterials);
@@ -153,8 +170,8 @@ impl Level {
             return Err(LevelLoadError::TooManyMaterials);
         }
 
-        for (ix, material_info) in mesh.materials().iter().enumerate() {
-            if let Some(material) = manifest.level.material.get(&material_info.name) {
+        for (ix, material_name) in mesh.materials().iter().enumerate() {
+            if let Some(material) = manifest.level.material.get(material_name) {
                 let (frame_paths, animation_speed) = material.frame_data();
                 let mut frames: Vec<u32> = Vec::with_capacity(frame_paths.len());
 
@@ -180,13 +197,13 @@ impl Level {
                     let (w, h) = img.dimensions();
 
                     let bucket_ix = find_texture_bucket(w, h).ok_or_else(|| {
-                        LevelLoadError::InvalidMaterialTextureDimensions(material_info.name.clone())
+                        LevelLoadError::InvalidMaterialTextureDimensions(material_name.clone())
                     })?;
 
                     let layer = next_free[bucket_ix];
                     if layer >= TEXTURE_BUCKETS[bucket_ix].layers {
                         return Err(LevelLoadError::TextureBucketExhausted(
-                            material_info.name.clone(),
+                            material_name.clone(),
                         ));
                     }
 
@@ -195,40 +212,19 @@ impl Level {
 
                     let texture_id = texture_index_data
                         .write(bucket_ix as u32, layer as u32)
-                        .map_err(|_| {
-                            LevelLoadError::TextureIndexFull(material_info.name.clone())
-                        })?;
+                        .map_err(|_| LevelLoadError::TextureIndexFull(material_name.clone()))?;
                     path_to_texture_id.insert(image_path.to_string(), texture_id);
                     frames.push(texture_id);
                 }
 
                 material_index_data
                     .write(ix, animation_speed, &frames)
-                    .map_err(|_| LevelLoadError::MaterialIndexFull(material_info.name.clone()))?;
+                    .map_err(|_| LevelLoadError::MaterialIndexFull(material_name.clone()))?;
                 continue;
             }
-
-            let img = image::RgbaImage::from_pixel(
-                FALLBACK_TEXTURE_SIZE,
-                FALLBACK_TEXTURE_SIZE,
-                image::Rgba(material_info.color),
-            );
-            let layer = next_free[fallback_bucket_ix];
-            if layer >= TEXTURE_BUCKETS[fallback_bucket_ix].layers {
-                return Err(LevelLoadError::TextureBucketExhausted(
-                    material_info.name.clone(),
-                ));
-            }
-
-            diffuse[fallback_bucket_ix].write_texture(queue, layer, &img);
-            next_free[fallback_bucket_ix] += 1;
-
-            let texture_id = texture_index_data
-                .write(fallback_bucket_ix as u32, layer as u32)
-                .map_err(|_| LevelLoadError::TextureIndexFull(material_info.name.clone()))?;
             material_index_data
-                .write(ix, 0.0, &[texture_id])
-                .map_err(|_| LevelLoadError::MaterialIndexFull(material_info.name.clone()))?;
+                .write(ix, 0.0, &[fallback_texture_id])
+                .map_err(|_| LevelLoadError::MaterialIndexFull(material_name.clone()))?;
         }
 
         let lightmap_texture_id = match &manifest.level.lightmap {
@@ -261,23 +257,7 @@ impl Level {
                     .write(bucket_ix as u32, layer as u32)
                     .map_err(|_| LevelLoadError::TextureIndexFull(lightmap_path.clone()))?
             }
-            None => {
-                let img = image::RgbaImage::from_pixel(
-                    FALLBACK_TEXTURE_SIZE,
-                    FALLBACK_TEXTURE_SIZE,
-                    image::Rgba(WHITE_RGBA),
-                );
-                let layer = next_free[fallback_bucket_ix];
-                if layer >= TEXTURE_BUCKETS[fallback_bucket_ix].layers {
-                    return Err(LevelLoadError::TextureBucketExhausted(
-                        "lightmap".to_string(),
-                    ));
-                }
-                diffuse[fallback_bucket_ix].write_texture(queue, layer, &img);
-                texture_index_data
-                    .write(fallback_bucket_ix as u32, layer as u32)
-                    .map_err(|_| LevelLoadError::TextureIndexFull("lightmap".to_string()))?
-            }
+            None => fallback_texture_id,
         };
 
         let texture_index = TextureIndexStorageBuffer::new(device);
@@ -297,7 +277,7 @@ impl Level {
                 error: e,
             })?;
             let portal_mesh =
-                GLTFMesh::new(model_file.data()).map_err(|e| LevelLoadError::Mesh {
+                GLTFMesh::from_bytes(model_file.data()).map_err(|e| LevelLoadError::Mesh {
                     asset: manifest_portal.model.clone(),
                     error: e,
                 })?;
@@ -305,11 +285,22 @@ impl Level {
             let link = base_url
                 .join(&manifest_portal.link)
                 .map_err(|_| LevelLoadError::URLInvalid(manifest_portal.link.clone()))?;
-            let spec = PortalSpec::from_gltf(&portal_mesh).map_err(|e| LevelLoadError::Portal {
-                asset: manifest_portal.model.clone(),
-                error: e,
-            })?;
-            let portal = LevelPortal::new(name.clone(), &spec, link);
+            let geometry =
+                PortalGeometry::from_gltf(&portal_mesh).map_err(|e| LevelLoadError::Portal {
+                    asset: manifest_portal.model.clone(),
+                    error: e,
+                })?;
+
+            let mut portal_buffer = ModelBuffer::new();
+            for v in portal_mesh.model_vertices() {
+                v.write_to_model_buffer(&mut portal_buffer);
+            }
+            let mut portal_model = Model::new(device, portal_mesh.vertex_count());
+            portal_model.upload(queue, &portal_buffer);
+            let portal_collider = TriMesh::from(&portal_mesh);
+
+            let portal =
+                LevelPortal::new(name.clone(), geometry, portal_model, portal_collider, link);
             portals.insert(name.clone(), portal);
         }
 

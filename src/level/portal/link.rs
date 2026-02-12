@@ -3,23 +3,61 @@ use std::f32::consts::PI;
 use glam::{Mat3, Vec3};
 use url::Url;
 
-use super::PortalKind;
+use super::{PortalGeometry, PortalKind};
 
 const EPSILON: f32 = 0.001;
 
 pub struct PortalLink {
-    pub url: Url,
-    pub portal_name: String,
-    pub src_yaw: f32,
-    pub src_center: Vec3,
-    pub dst_yaw: f32,
-    pub dst_center: Vec3,
-    pub dst_kind: PortalKind,
+    url: Url,
+    portal_name: String,
+    src_yaw: f32,
+    src_roll: f32,
+    src_kind: PortalKind,
+    src_center: Vec3,
+    dst_yaw: f32,
+    dst_roll: f32,
+    dst_center: Vec3,
+    dst_kind: PortalKind,
+    dst_normal_world: Vec3,
 }
 
 impl PortalLink {
+    pub fn new(url: Url, portal_name: String, src: PortalGeometry, dst: PortalGeometry) -> Self {
+        return Self {
+            url,
+            portal_name,
+            src_yaw: src.yaw(),
+            src_roll: src.roll(),
+            src_kind: src.kind(),
+            src_center: src.center(),
+            dst_yaw: dst.yaw(),
+            dst_roll: dst.roll(),
+            dst_center: dst.center(),
+            dst_kind: dst.kind(),
+            dst_normal_world: dst.normal(),
+        };
+    }
+
+    pub fn url(&self) -> &Url {
+        return &self.url;
+    }
+
+    pub fn portal_name(&self) -> &str {
+        return &self.portal_name;
+    }
+
+    pub fn dst_center(&self) -> Vec3 {
+        return self.dst_center;
+    }
+
     pub fn yaw_delta(&self) -> f32 {
-        return self.dst_yaw - self.src_yaw + PI;
+        return match (self.src_kind, self.dst_kind) {
+            (PortalKind::Wall, PortalKind::Wall) => self.dst_yaw - self.src_yaw + PI,
+            (PortalKind::Floor, PortalKind::Ceiling) | (PortalKind::Ceiling, PortalKind::Floor) => {
+                self.dst_roll - self.src_roll + PI
+            }
+            _ => panic!("invalid portal kind pairing"),
+        };
     }
 
     pub fn transform_position(&self, pos: Vec3, apply_nudge: bool) -> Vec3 {
@@ -31,14 +69,16 @@ impl PortalLink {
             return new_pos;
         }
 
-        // Nudge towards portal center in the portal plane
-        let offset = new_pos - self.dst_center;
         let normal = self.dst_normal();
-        let to_center = -offset;
-        let parallel = to_center.dot(normal) * normal;
-        let nudge_dir = (to_center - parallel).normalize_or_zero();
+        let reference = self.dst_kind.reference_axis();
+        let axis_u = normal.cross(reference).normalize_or_zero();
+        let axis_v = normal.cross(axis_u).normalize_or_zero();
+        let to_center = self.dst_center - new_pos;
+        let du = to_center.dot(axis_u);
+        let dv = to_center.dot(axis_v);
 
-        return new_pos + nudge_dir * EPSILON;
+        let nudge = axis_u * du.signum() * EPSILON + axis_v * dv.signum() * EPSILON;
+        return new_pos + nudge;
     }
 
     pub fn transform_velocity(&self, vel: Vec3) -> Vec3 {
@@ -47,10 +87,6 @@ impl PortalLink {
     }
 
     pub fn dst_normal(&self) -> Vec3 {
-        return match self.dst_kind {
-            PortalKind::Wall => Vec3::new(self.dst_yaw.sin(), 0.0, self.dst_yaw.cos()),
-            PortalKind::Floor => Vec3::Y,
-            PortalKind::Ceiling => Vec3::NEG_Y,
-        };
+        return self.dst_normal_world;
     }
 }

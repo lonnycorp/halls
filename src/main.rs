@@ -31,7 +31,6 @@ use config::Config;
 use graphics::model::{Model, ModelBuffer};
 use graphics::render_target::RenderTarget;
 use level::cache::{LevelCache, LevelCacheResult};
-use level::portal::PortalModel;
 use level::render::{LevelRenderContext, LevelRenderContextState, LevelRenderSchema};
 use overlay::MenuHomeUpdateContext;
 use player::Player;
@@ -104,8 +103,6 @@ struct State {
     menu_settings: overlay::MenuSettings,
     menu_visit: overlay::MenuVisit,
     camera: UniformCamera,
-
-    portal_model: PortalModel,
     tick: u32,
     projection: Mat4,
     render_targets: Vec<RenderTarget>,
@@ -271,7 +268,6 @@ fn render(state: &mut State, gpu: &GPUContext) {
                 state: &mut render_ctx_state,
                 pipeline_level: &state.pipeline_level,
                 pipeline_portal: &state.pipeline_portal,
-                portal_model: &state.portal_model,
                 color_view: &color_view,
                 depth_view: state.depth_texture.view(),
                 eye,
@@ -355,7 +351,6 @@ impl WindowHandler for Halls {
                 let menu_settings = overlay::MenuSettings::new(&config);
                 let menu_visit = overlay::MenuVisit::new(&config);
 
-                let portal_model = PortalModel::new(&ctx.gpu.device, &ctx.gpu.queue);
                 let camera = UniformCamera::new(&ctx.gpu.device, 64);
                 let projection =
                     Mat4::perspective_rh(75f32.to_radians(), ctx.gpu.aspect(), 0.05, 1000.0);
@@ -414,7 +409,6 @@ impl WindowHandler for Halls {
                     menu_settings,
                     menu_visit,
                     camera,
-                    portal_model,
                     tick: 0,
                     projection,
                     render_targets,

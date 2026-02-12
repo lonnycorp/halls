@@ -1,15 +1,15 @@
 use glam::{Mat4, Vec2, Vec3};
 
-use super::material::GLTFMaterial;
 use super::vertex::GLTFVertex;
 
 pub struct GLTFMesh {
     positions: Vec<f32>,
     diffuse_uvs: Vec<f32>,
     lightmap_uvs: Vec<f32>,
+    colors: Vec<u8>,
     indices: Vec<u32>,
     material_indices: Vec<Option<u32>>,
-    materials: Vec<GLTFMaterial>,
+    materials: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -19,10 +19,11 @@ pub enum GLTFMeshError {
     MultipleScenes,
     InconsistentDiffuseUVs,
     InconsistentLightmapUVs,
+    InconsistentColors,
 }
 
 impl GLTFMesh {
-    pub fn new(data: &[u8]) -> Result<Self, GLTFMeshError> {
+    pub fn from_bytes(data: &[u8]) -> Result<Self, GLTFMeshError> {
         let (document, buffers, _) = ::gltf::import_slice(data).map_err(|_| GLTFMeshError::Load)?;
 
         let scenes: Vec<_> = document.scenes().collect();
@@ -32,27 +33,16 @@ impl GLTFMesh {
             _ => return Err(GLTFMeshError::MultipleScenes),
         };
 
-        let materials: Vec<GLTFMaterial> = document
+        let materials: Vec<String> = document
             .materials()
-            .map(|material| {
-                let base_color = material.pbr_metallic_roughness().base_color_factor();
-                let color = [
-                    (base_color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (base_color[1].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (base_color[2].clamp(0.0, 1.0) * 255.0).round() as u8,
-                    (base_color[3].clamp(0.0, 1.0) * 255.0).round() as u8,
-                ];
-                return GLTFMaterial {
-                    name: material.name().unwrap_or("unnamed").to_string(),
-                    color,
-                };
-            })
+            .map(|material| material.name().unwrap_or("unnamed").to_string())
             .collect();
 
         let mut mesh = GLTFMesh {
             positions: Vec::new(),
             diffuse_uvs: Vec::new(),
             lightmap_uvs: Vec::new(),
+            colors: Vec::new(),
             indices: Vec::new(),
             material_indices: Vec::new(),
             materials,
@@ -70,6 +60,9 @@ impl GLTFMesh {
         if !mesh.lightmap_uvs.is_empty() && mesh.lightmap_uvs.len() != vertex_count * 2 {
             return Err(GLTFMeshError::InconsistentLightmapUVs);
         }
+        if !mesh.colors.is_empty() && mesh.colors.len() != vertex_count * 4 {
+            return Err(GLTFMeshError::InconsistentColors);
+        }
 
         return Ok(mesh);
     }
@@ -78,34 +71,23 @@ impl GLTFMesh {
         return self.indices.len();
     }
 
-    pub fn materials(&self) -> &[GLTFMaterial] {
+    pub fn materials(&self) -> &[String] {
         return &self.materials;
     }
 
-    #[cfg(test)]
-    pub fn from_raw(positions: Vec<f32>, indices: Vec<u32>) -> Self {
-        let vertex_count = positions.len() / 3;
-        return Self {
-            positions,
-            diffuse_uvs: Vec::new(),
-            lightmap_uvs: Vec::new(),
-            indices,
-            material_indices: vec![None; vertex_count],
-            materials: Vec::new(),
-        };
-    }
-
-    #[cfg(test)]
-    pub fn from_raw_with_uvs(
+    pub fn new(
         positions: Vec<f32>,
-        diffuse_uvs: Vec<f32>,
         indices: Vec<u32>,
+        diffuse_uvs: Option<Vec<f32>>,
+        lightmap_uvs: Option<Vec<f32>>,
+        colors: Option<Vec<u8>>,
     ) -> Self {
         let vertex_count = positions.len() / 3;
         return Self {
             positions,
-            diffuse_uvs,
-            lightmap_uvs: Vec::new(),
+            diffuse_uvs: diffuse_uvs.unwrap_or_default(),
+            lightmap_uvs: lightmap_uvs.unwrap_or_default(),
+            colors: colors.unwrap_or_default(),
             indices,
             material_indices: vec![None; vertex_count],
             materials: Vec::new(),
@@ -141,12 +123,23 @@ impl GLTFMesh {
         };
 
         let material_ix = self.material_indices[idx];
+        let color = if self.colors.is_empty() {
+            None
+        } else {
+            Some([
+                self.colors[idx * 4],
+                self.colors[idx * 4 + 1],
+                self.colors[idx * 4 + 2],
+                self.colors[idx * 4 + 3],
+            ])
+        };
 
         return GLTFVertex {
             position,
             diffuse_uv,
             lightmap_uv,
             material_ix,
+            color,
         };
     }
 
@@ -196,6 +189,19 @@ fn process_node_recursive(
             if let Some(tex_iter) = reader.read_tex_coords(1) {
                 for tex in tex_iter.into_f32() {
                     mesh.lightmap_uvs.extend_from_slice(&tex);
+                }
+            }
+
+            if let Some(color_iter) = reader.read_colors(0) {
+                for color in color_iter.into_rgba_f32() {
+                    mesh.colors
+                        .push((color[0].clamp(0.0, 1.0) * 255.0).round() as u8);
+                    mesh.colors
+                        .push((color[1].clamp(0.0, 1.0) * 255.0).round() as u8);
+                    mesh.colors
+                        .push((color[2].clamp(0.0, 1.0) * 255.0).round() as u8);
+                    mesh.colors
+                        .push((color[3].clamp(0.0, 1.0) * 255.0).round() as u8);
                 }
             }
 

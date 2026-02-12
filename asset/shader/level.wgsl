@@ -1,7 +1,6 @@
 struct CameraUniform {
     projection: mat4x4<f32>,
     view: mat4x4<f32>,
-    model: mat4x4<f32>,
     clip_plane: vec4<f32>,
 }
 
@@ -51,6 +50,7 @@ struct VertexInput {
     @location(1) diffuse_uv: vec2<f32>,
     @location(2) lightmap_uv: vec2<f32>,
     @location(3) texture_ix: u32,
+    @location(4) color: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -59,12 +59,13 @@ struct VertexOutput {
     @location(1) lightmap_uv: vec2<f32>,
     @location(2) world_position: vec3<f32>,
     @location(3) @interpolate(flat) texture_ix: u32,
+    @location(4) color: vec4<f32>,
 }
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    let world_position = camera.model * vec4<f32>(in.position, 1.0);
+    let world_position = vec4<f32>(in.position, 1.0);
     let view_position = camera.view * world_position;
 
     out.clip_position = camera.projection * view_position;
@@ -72,6 +73,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.lightmap_uv = in.lightmap_uv;
     out.world_position = world_position.xyz;
     out.texture_ix = in.texture_ix;
+    out.color = in.color;
     return out;
 }
 
@@ -104,5 +106,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let lm_layer_ix = lm_entry.layer;
     let light = textureSample(diffuse[lm_array_ix], diffuse_sampler, in.lightmap_uv, lm_layer_ix);
 
-    return diffuse_color * light;
+    return diffuse_color * light * in.color;
 }

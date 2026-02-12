@@ -1,333 +1,387 @@
-use super::portal::{PortalError, PortalKind};
-use super::spec::PortalSpec;
+use std::f32::consts::PI;
+
+use glam::Vec3;
+use url::Url;
+
+use super::geometry::PortalGeometry;
+use super::kind::PortalKind;
+use super::link::PortalLink;
+use super::portal::PortalError;
 use crate::gltf::GLTFMesh;
 
-fn make_mesh(positions: Vec<f32>, indices: Vec<u32>) -> GLTFMesh {
-    GLTFMesh::from_raw(positions, indices)
-}
+const WHITE_COLOR: [u8; 4] = [255, 255, 255, 255];
+const ANCHOR_COLOR: [u8; 4] = [255, 0, 255, 255];
 
-fn make_mesh_with_uvs(positions: Vec<f32>, uvs: Vec<f32>, indices: Vec<u32>) -> GLTFMesh {
-    GLTFMesh::from_raw_with_uvs(positions, uvs, indices)
-}
-
-// Standard UV layout for a quad: (0,0), (1,0), (1,1), (0,1)
-fn standard_uvs() -> Vec<f32> {
-    vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
-}
-
-// Creates a wall portal (vertical face, normal in XZ plane)
-// UV layout: vertex 0 = (0,0), vertex 1 = (1,0), vertex 2 = (1,1), vertex 3 = (0,1)
-fn make_wall_portal(w: f32, h: f32, yaw: f32) -> GLTFMesh {
-    let (sin_yaw, cos_yaw) = yaw.sin_cos();
-    // Direction from UV(0,0) to UV(1,0) defines the local_u axis
-    // For yaw=0, local_u should point along +X, so portal faces +Z
-    let right_x = cos_yaw;
-    let right_z = -sin_yaw;
-
-    // Vertices: bottom-left, bottom-right, top-right, top-left
-    let positions = vec![
-        0.0,
-        0.0,
-        0.0, // UV (0,0)
-        right_x * w,
-        0.0,
-        right_z * w, // UV (1,0)
-        right_x * w,
-        h,
-        right_z * w, // UV (1,1)
-        0.0,
-        h,
-        0.0, // UV (0,1)
-    ];
-    let uvs = standard_uvs();
-    let indices = vec![0, 1, 2, 0, 2, 3];
-
-    make_mesh_with_uvs(positions, uvs, indices)
+fn make_mesh_with_colors(positions: Vec<f32>, colors: Vec<u8>, indices: Vec<u32>) -> GLTFMesh {
+    return GLTFMesh::new(positions, indices, None, None, Some(colors));
 }
 
 #[test]
-fn rejects_degenerate_line() {
-    let mesh = make_mesh(vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0], vec![0, 1]);
-    let result = PortalSpec::from_gltf(&mesh);
+fn rejects_insufficient_vertices() {
+    let mesh = make_mesh_with_colors(
+        vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        vec![
+            ANCHOR_COLOR[0],
+            ANCHOR_COLOR[1],
+            ANCHOR_COLOR[2],
+            ANCHOR_COLOR[3],
+            WHITE_COLOR[0],
+            WHITE_COLOR[1],
+            WHITE_COLOR[2],
+            WHITE_COLOR[3],
+        ],
+        vec![0, 1],
+    );
+    let result = PortalGeometry::from_gltf(&mesh);
     assert!(matches!(result, Err(PortalError::InsufficientVertices)));
 }
 
 #[test]
-fn accepts_floor_portal() {
-    // Floor portal facing up (normal = +Y)
-    // axis_u = (0,0,3), axis_v = (3,0,0), U × V = (0,+9,0) -> Floor
-    let positions = vec![
-        0.0, 0.0, 0.0, // UV (0,0)
-        0.0, 0.0, 3.0, // UV (1,0)
-        3.0, 0.0, 3.0, // UV (1,1)
-        3.0, 0.0, 0.0, // UV (0,1)
-    ];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
-
-    let spec = result.unwrap();
-    assert!(matches!(spec.kind, PortalKind::Floor));
-}
-
-#[test]
-fn accepts_ceiling_portal() {
-    // Ceiling portal facing down (normal = -Y)
-    // For -Y normal: need CW winding from above
-    // Vertices: 0=(0,0,0), 1=(3,0,0), 2=(3,0,3), 3=(0,0,3)
-    let positions = vec![
-        0.0, 0.0, 0.0, // UV (0,0)
-        3.0, 0.0, 0.0, // UV (1,0) - local_u points +X
-        3.0, 0.0, 3.0, // UV (1,1)
-        0.0, 0.0, 3.0, // UV (0,1)
-    ];
-    let uvs = standard_uvs();
-    // Winding: 0->1->2, 0->2->3 gives -Y normal
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
-
-    let spec = result.unwrap();
-    assert!(matches!(spec.kind, PortalKind::Ceiling));
-}
-
-#[test]
 fn rejects_non_coplanar_vertices() {
-    let positions = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.5, 0.0, 1.0, 0.0];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
+    let positions = vec![
+        0.0, 0.0, 0.0, // anchor
+        1.0, 0.0, 0.0, 1.0, 1.0, 0.5, // off plane
+        0.0, 1.0, 0.0,
+    ];
+    let colors = vec![
+        ANCHOR_COLOR[0],
+        ANCHOR_COLOR[1],
+        ANCHOR_COLOR[2],
+        ANCHOR_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+    ];
+    let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
+
+    let result = PortalGeometry::from_gltf(&mesh);
     assert!(matches!(result, Err(PortalError::NotCoplanar)));
 }
 
 #[test]
-fn accepts_valid_front_portal() {
-    let mesh = make_wall_portal(2.0, 3.0, 0.0);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
-
-    let spec = result.unwrap();
-    assert!(matches!(spec.kind, PortalKind::Wall));
-    assert!(spec.yaw.abs() < 0.001);
-}
-
-#[test]
-fn accepts_diagonal_wall_portal() {
-    use std::f32::consts::FRAC_PI_4;
-
-    let mesh = make_wall_portal(2.0, 3.0, FRAC_PI_4);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
-
-    let spec = result.unwrap();
-    assert!(matches!(spec.kind, PortalKind::Wall));
-    assert!((spec.yaw - FRAC_PI_4).abs() < 0.001);
-}
-
-#[test]
-fn accepts_shifted_winding_order() {
-    // Same rectangle, different triangle winding
-    let positions = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0, 3.0, 0.0];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![1, 2, 3, 1, 3, 0]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
-}
-
-#[test]
-fn accepts_reversed_triangle_order() {
-    let positions = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0, 3.0, 0.0];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 2, 3, 0, 1, 2]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
-}
-
-#[test]
-fn rejects_hexagon_portal() {
-    let half_w = 2.0;
-    let quarter_w = 1.0;
-    let h = 2.0;
-
+fn accepts_arbitrary_polygon_floor_portal() {
     let positions = vec![
-        -quarter_w,
-        0.0,
-        0.0,
-        quarter_w,
-        0.0,
-        0.0,
-        half_w,
-        h / 2.0,
-        0.0,
-        quarter_w,
-        h,
-        0.0,
-        -quarter_w,
-        h,
-        0.0,
-        -half_w,
-        h / 2.0,
-        0.0,
+        1.0, 0.0, 0.0, // anchor
+        0.5, 0.0, 0.8, -0.5, 0.0, 0.8, -1.0, 0.0, 0.0, -0.5, 0.0, -0.8, 0.5, 0.0, -0.8,
     ];
-    // 6 vertices, can't have standard 4-corner UV layout
-    let uvs = vec![0.0, 0.0, 0.5, 0.0, 1.0, 0.5, 0.5, 1.0, 0.0, 1.0, 0.0, 0.5];
-    let indices = vec![0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5];
+    let colors = vec![
+        ANCHOR_COLOR[0],
+        ANCHOR_COLOR[1],
+        ANCHOR_COLOR[2],
+        ANCHOR_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+    ];
+    let indices = vec![0, 2, 1, 0, 3, 2, 0, 4, 3, 0, 5, 4];
+    let mesh = make_mesh_with_colors(positions, colors, indices);
 
-    let mesh = make_mesh_with_uvs(positions, uvs, indices);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(matches!(result, Err(PortalError::NotRectangularQuad)));
+    let spec = PortalGeometry::from_gltf(&mesh).unwrap();
+    assert!(matches!(spec.kind(), PortalKind::Floor));
+    assert!(spec.yaw().abs() < 0.001);
 }
 
 #[test]
-fn rejects_triangle_portal() {
-    let positions = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 1.0, 0.0];
-    let uvs = vec![0.0, 0.0, 1.0, 0.0, 0.5, 1.0];
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(matches!(result, Err(PortalError::NotRectangularQuad)));
+fn rejects_missing_anchor_color() {
+    let positions = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+    let colors = vec![
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+    ];
+    let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
+
+    let result = PortalGeometry::from_gltf(&mesh);
+    assert!(matches!(result, Err(PortalError::MissingAnchorColor)));
 }
 
 #[test]
-fn rejects_parallelogram_portal() {
-    // Skewed quad - not symmetric around center
-    let positions = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.5, 1.0, 0.0, 0.5, 1.0, 0.0];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(matches!(result, Err(PortalError::NotRectangularQuad)));
-}
-
-#[test]
-fn rejects_trapezoid_portal() {
-    // Asymmetric widths - wider at bottom than top
-    let positions = vec![-1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 1.0, 0.0, -0.5, 1.0, 0.0];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(matches!(result, Err(PortalError::NotRectangularQuad)));
-}
-
-#[test]
-fn floor_portal_yaw_from_uv_layout() {
-    // Floor portal where local_u (UV 0,0 -> 1,0) points along +Z
-    // axis_u_norm = (0,0,1)
-    // yaw = atan2(-1, 0) = -π/2
-    use std::f32::consts::FRAC_PI_2;
-
+fn rejects_ambiguous_anchor_color() {
     let positions = vec![
-        0.0, 0.0, 0.0, // UV (0,0)
-        0.0, 0.0, 3.0, // UV (1,0) - local_u points +Z
-        3.0, 0.0, 3.0, // UV (1,1)
-        3.0, 0.0, 0.0, // UV (0,1)
+        0.0, 0.0, 0.0, // anchor 1
+        1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 2.0, 0.0,
+        0.0, // anchor 2 (different position)
     ];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
+    let colors = vec![
+        ANCHOR_COLOR[0],
+        ANCHOR_COLOR[1],
+        ANCHOR_COLOR[2],
+        ANCHOR_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        ANCHOR_COLOR[0],
+        ANCHOR_COLOR[1],
+        ANCHOR_COLOR[2],
+        ANCHOR_COLOR[3],
+    ];
+    let indices = vec![0, 1, 2, 0, 2, 3, 0, 4, 1];
+    let mesh = make_mesh_with_colors(positions, colors, indices);
 
-    let spec = result.unwrap();
-    assert!(matches!(spec.kind, PortalKind::Floor));
-    // local_u = (0,0,3) - (0,0,0) = (0,0,3), normalized = (0,0,1)
-    // yaw = atan2(-1, 0) = -π/2
-    assert!(
-        (spec.yaw - (-FRAC_PI_2)).abs() < 0.001,
-        "Expected yaw ~-π/2, got {}",
-        spec.yaw
-    );
+    let result = PortalGeometry::from_gltf(&mesh);
+    assert!(matches!(result, Err(PortalError::AmbiguousAnchorColor)));
 }
 
 #[test]
-fn ceiling_portal_yaw_from_uv_layout() {
-    // Ceiling portal where local_u points along +X
-    // axis_u_norm = (1,0,0)
-    // yaw = atan2(0, 1) = 0
+fn rejects_unstable_anchor() {
+    // Anchor at the centroid of all unique vertices.
     let positions = vec![
-        0.0, 0.0, 0.0, // UV (0,0)
-        3.0, 0.0, 0.0, // UV (1,0) - local_u points +X
-        3.0, 0.0, 3.0, // UV (1,1)
-        0.0, 0.0, 3.0, // UV (0,1)
+        0.0, 0.0, 0.0, // anchor
+        1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0,
     ];
-    let uvs = standard_uvs();
-    // Winding for ceiling (normal -Y): [0,1,2, 0,2,3]
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
+    let colors = vec![
+        ANCHOR_COLOR[0],
+        ANCHOR_COLOR[1],
+        ANCHOR_COLOR[2],
+        ANCHOR_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+    ];
+    let indices = vec![0, 1, 3, 0, 3, 2, 0, 2, 4, 0, 4, 1];
+    let mesh = make_mesh_with_colors(positions, colors, indices);
 
-    let spec = result.unwrap();
-    assert!(matches!(spec.kind, PortalKind::Ceiling));
-    // local_u = (3,0,0) - (0,0,0) = (3,0,0), normalized = (1,0,0)
-    // yaw = atan2(0, 1) = 0
-    assert!(spec.yaw.abs() < 0.001, "Expected yaw ~0, got {}", spec.yaw);
+    let result = PortalGeometry::from_gltf(&mesh);
+    assert!(matches!(result, Err(PortalError::UnstableAnchor)));
 }
 
 #[test]
-fn rejects_portal_without_uvs() {
-    // Portal without any UV data
-    let positions = vec![0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 3.0, 0.0, 3.0, 0.0, 0.0, 3.0];
-    let mesh = make_mesh(positions, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(matches!(result, Err(PortalError::MissingUV)));
-}
-
-#[test]
-fn rejects_portal_with_invalid_uv_layout() {
-    // Portal with UVs but not the expected corner layout
-    let positions = vec![0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 3.0, 0.0, 3.0, 0.0, 0.0, 3.0];
-    let uvs = vec![
-        0.5, 0.5, // Not (0,0)
-        1.0, 0.5, 1.0, 1.0, 0.5, 1.0,
+fn wall_portal_computes_yaw_and_roll() {
+    let positions = vec![
+        0.0, 0.0, 0.0, // anchor
+        1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0,
     ];
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(matches!(result, Err(PortalError::InvalidUVLayout)));
+    let colors = vec![
+        ANCHOR_COLOR[0],
+        ANCHOR_COLOR[1],
+        ANCHOR_COLOR[2],
+        ANCHOR_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+    ];
+    let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
+
+    let spec = PortalGeometry::from_gltf(&mesh).unwrap();
+    assert!(matches!(spec.kind(), PortalKind::Wall));
+    assert!(spec.yaw().abs() < 0.001);
+    assert!((spec.roll() - 2.3561945).abs() < 0.001);
 }
 
 #[test]
 fn rejects_tilted_portal() {
-    // Portal tilted at 45 degrees - neither wall nor floor/ceiling
     let positions = vec![
         0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 3.0, 2.12, 2.12, 0.0, 2.12, 2.12,
     ];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
+    let colors = vec![
+        ANCHOR_COLOR[0],
+        ANCHOR_COLOR[1],
+        ANCHOR_COLOR[2],
+        ANCHOR_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+        WHITE_COLOR[0],
+        WHITE_COLOR[1],
+        WHITE_COLOR[2],
+        WHITE_COLOR[3],
+    ];
+    let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
+
+    let result = PortalGeometry::from_gltf(&mesh);
     assert!(matches!(result, Err(PortalError::TiltedPortal)));
 }
 
 #[test]
-fn rejects_inconsistent_uvs() {
-    // Same position referenced with different UVs
-    let positions = vec![
-        0.0, 0.0, 0.0, // First occurrence
-        3.0, 0.0, 0.0, 3.0, 3.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0,
-        0.0, // Same position as vertex 0
-        3.0, 3.0, 0.0, // Same position as vertex 2
-    ];
-    let uvs = vec![
-        0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5, // Different UV for same position!
-        0.5, 0.5, // Different UV for same position!
-    ];
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 3, 4, 5]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(matches!(result, Err(PortalError::InconsistentUVs)));
+fn wall_link_yaw_delta_uses_yaw() {
+    let link = PortalLink::new(
+        Url::parse("https://example.com/level.json").unwrap(),
+        "dst".to_string(),
+        PortalGeometry::new(Vec3::ZERO, Vec3::Z, 0.25, 0.0, PortalKind::Wall, vec![]),
+        PortalGeometry::new(Vec3::ZERO, Vec3::Z, 1.0, 0.5, PortalKind::Wall, vec![]),
+    );
+
+    assert!((link.yaw_delta() - (1.0 - 0.25 + PI)).abs() < 0.001);
 }
 
 #[test]
-fn accepts_non_square_floor_rectangle() {
-    // 3x4 rectangle
-    // axis_u = (0,0,3), axis_v = (4,0,0), U × V = (0,+12,0) -> Floor
-    let positions = vec![
-        0.0, 0.0, 0.0, // UV (0,0)
-        0.0, 0.0, 3.0, // UV (1,0)
-        4.0, 0.0, 3.0, // UV (1,1)
-        4.0, 0.0, 0.0, // UV (0,1)
-    ];
-    let uvs = standard_uvs();
-    let mesh = make_mesh_with_uvs(positions, uvs, vec![0, 1, 2, 0, 2, 3]);
-    let result = PortalSpec::from_gltf(&mesh);
-    assert!(result.is_ok(), "Expected Ok but got {:?}", result);
+fn floor_ceiling_link_yaw_delta_uses_roll_plus_pi() {
+    let link = PortalLink::new(
+        Url::parse("https://example.com/level.json").unwrap(),
+        "dst".to_string(),
+        PortalGeometry::new(Vec3::ZERO, Vec3::Y, 1.2, 0.25, PortalKind::Floor, vec![]),
+        PortalGeometry::new(
+            Vec3::ZERO,
+            Vec3::NEG_Y,
+            -0.7,
+            1.0,
+            PortalKind::Ceiling,
+            vec![],
+        ),
+    );
 
-    let spec = result.unwrap();
-    assert!(matches!(spec.kind, PortalKind::Floor));
+    assert!((link.yaw_delta() - (1.0 - 0.25 + PI)).abs() < 0.001);
+}
+
+#[test]
+fn geometry_matches_within_epsilon() {
+    let a = PortalGeometry::new(
+        Vec3::ZERO,
+        Vec3::Z,
+        0.0,
+        0.2,
+        PortalKind::Wall,
+        vec![(0.4, 1.2), (1.1, 2.5), (2.7, 0.8)],
+    );
+    let b = PortalGeometry::new(
+        Vec3::new(10.0, 2.0, -3.0),
+        Vec3::Z,
+        1.0,
+        0.2005,
+        PortalKind::Wall,
+        vec![(0.4005, 1.2005), (1.1005, 2.5005), (2.7005, 0.8005)],
+    );
+
+    assert!(a.matches(&b));
+}
+
+#[test]
+fn geometry_rejects_incompatible_kinds() {
+    let a = PortalGeometry::new(
+        Vec3::ZERO,
+        Vec3::Y,
+        0.0,
+        0.0,
+        PortalKind::Floor,
+        vec![(0.5, 1.0), (1.5, 1.0), (2.5, 1.0)],
+    );
+    let b = PortalGeometry::new(
+        Vec3::ZERO,
+        Vec3::Y,
+        0.0,
+        0.0,
+        PortalKind::Floor,
+        vec![(0.5, 1.0), (1.5, 1.0), (2.5, 1.0)],
+    );
+
+    assert!(!a.matches(&b));
+}
+
+#[test]
+fn geometry_rejects_wall_roll_mismatch() {
+    let a = PortalGeometry::new(
+        Vec3::ZERO,
+        Vec3::Z,
+        0.0,
+        0.0,
+        PortalKind::Wall,
+        vec![(0.5, 1.0), (1.5, 1.0), (2.5, 1.0)],
+    );
+    let b = PortalGeometry::new(
+        Vec3::ZERO,
+        Vec3::Z,
+        0.0,
+        0.1,
+        PortalKind::Wall,
+        vec![(0.5, 1.0), (1.5, 1.0), (2.5, 1.0)],
+    );
+
+    assert!(!a.matches(&b));
+}
+
+#[test]
+fn geometry_rejects_fingerprint_mismatch() {
+    let a = PortalGeometry::new(
+        Vec3::ZERO,
+        Vec3::Y,
+        0.0,
+        0.0,
+        PortalKind::Floor,
+        vec![(0.5, 1.0), (1.5, 1.0), (2.5, 1.0)],
+    );
+    let b = PortalGeometry::new(
+        Vec3::ZERO,
+        Vec3::NEG_Y,
+        0.0,
+        0.0,
+        PortalKind::Ceiling,
+        vec![(0.5, 1.0), (1.5, 1.0), (2.8, 1.0)],
+    );
+
+    assert!(!a.matches(&b));
 }

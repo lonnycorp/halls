@@ -9,7 +9,6 @@ use glam::{Mat4, Vec2, Vec3, Vec4};
 pub struct UniformCameraData {
     pub projection: Mat4,
     pub view: Mat4,
-    pub model: Mat4,
     pub clip_plane: Vec4,
 }
 
@@ -18,7 +17,6 @@ impl UniformCameraData {
         return Self {
             projection: Mat4::IDENTITY,
             view: Mat4::IDENTITY,
-            model: Mat4::IDENTITY,
             clip_plane: Vec4::ZERO,
         };
     }
@@ -27,13 +25,6 @@ impl UniformCameraData {
         self.view = Mat4::from_rotation_x(-rotation.x)
             * Mat4::from_rotation_y(-rotation.y)
             * Mat4::from_translation(-position);
-    }
-
-    pub fn set_model(&mut self, position: Vec3, rotation: Vec2, scale: Vec2) {
-        self.model = Mat4::from_translation(position)
-            * Mat4::from_rotation_y(rotation.y)
-            * Mat4::from_rotation_x(rotation.x)
-            * Mat4::from_scale(Vec3::new(scale.x, scale.y, 1.0));
     }
 }
 

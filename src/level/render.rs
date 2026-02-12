@@ -10,7 +10,6 @@ use crate::graphics::pipeline::portal::{
 use crate::graphics::render_target::RenderTarget;
 use crate::graphics::uniform::{UniformCamera, UniformCameraData};
 use crate::level::cache::{LevelCache, LevelCacheResult};
-use crate::level::portal::PortalModel;
 
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -37,7 +36,6 @@ pub struct LevelRenderContext<'a> {
     pub state: &'a mut LevelRenderContextState,
     pub pipeline_level: &'a wgpu::RenderPipeline,
     pub pipeline_portal: &'a wgpu::RenderPipeline,
-    pub portal_model: &'a PortalModel,
     pub color_view: &'a wgpu::TextureView,
     pub depth_view: &'a wgpu::TextureView,
     pub eye: Vec3,
@@ -71,7 +69,6 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
         state: render_state,
         pipeline_level,
         pipeline_portal,
-        portal_model,
         color_view,
         depth_view,
         eye,
@@ -142,7 +139,7 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                 LevelRenderSchema::Current {
                     last_portal: Some((url, portal)),
                     ..
-                } => *url == link.url && portal == &link.portal_name,
+                } => *url == *link.url() && portal == link.portal_name(),
                 _ => false,
             };
 
@@ -170,7 +167,7 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
         let dst_level =
             link.as_ref()
                 .zip(recurse_schema.as_ref())
-                .and_then(|(link, _)| match cache.get(&link.url) {
+                .and_then(|(link, _)| match cache.get(link.url()) {
                     LevelCacheResult::Ready(level) => Some(level),
                     _ => None,
                 });
@@ -178,10 +175,13 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
         if let (Some(next_schema), Some(dst_level)) = (recurse_schema, dst_level) {
             // Render destination to render target from pool
             let link = link.unwrap();
+            let src_geometry = src_portal.geometry();
 
             let yaw_delta = link.yaw_delta();
             let dst_normal = link.dst_normal();
-            let eye_side = (eye - src_portal.center).dot(src_portal.normal()).signum();
+            let eye_side = (eye - src_geometry.center())
+                .dot(src_geometry.normal())
+                .signum();
             let clip_normal = dst_normal * eye_side;
 
             level_render(
@@ -198,7 +198,6 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                     state: &mut *render_state,
                     pipeline_level,
                     pipeline_portal,
-                    portal_model,
                     color_view: rt.color_view(),
                     depth_view: rt.depth_view(),
                     eye: link.transform_position(eye, false),
@@ -207,10 +206,10 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                         clip_normal.x,
                         clip_normal.y,
                         clip_normal.z,
-                        -clip_normal.dot(link.dst_center),
+                        -clip_normal.dot(link.dst_center()),
                     ),
                     schema: next_schema,
-                    skip_portal: Some(&link.portal_name),
+                    skip_portal: Some(link.portal_name()),
                 },
             );
 
@@ -219,11 +218,6 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
             camera_data.projection = projection;
             camera_data.clip_plane = clip;
             camera_data.set_view(eye, player_rotation);
-            camera_data.set_model(
-                src_portal.center,
-                Vec2::new(src_portal.kind.pitch(), src_portal.yaw),
-                src_portal.dimensions,
-            );
             let camera_offset = camera.write(queue, render_state.camera, &camera_data);
             render_state.camera += 1;
 
@@ -253,7 +247,7 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                 portal_texture_bind_group.bind(&mut rp);
                 portal_bind_group_config.bind(&mut rp, camera_offset);
                 bind_portal_constants(&mut rp, open_factor);
-                portal_model.draw(&mut rp);
+                src_portal.draw(&mut rp);
             }
         } else {
             // Draw portal as black (no recursion available)
@@ -261,11 +255,6 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
             camera_data.projection = projection;
             camera_data.clip_plane = clip;
             camera_data.set_view(eye, player_rotation);
-            camera_data.set_model(
-                src_portal.center,
-                Vec2::new(src_portal.kind.pitch(), src_portal.yaw),
-                src_portal.dimensions,
-            );
             let camera_offset = camera.write(queue, render_state.camera, &camera_data);
             render_state.camera += 1;
 
@@ -295,7 +284,7 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                 portal_texture_bind_group.bind(&mut rp);
                 portal_bind_group_config.bind(&mut rp, camera_offset);
                 bind_portal_constants(&mut rp, 0.0);
-                portal_model.draw(&mut rp);
+                src_portal.draw(&mut rp);
             }
         }
     }

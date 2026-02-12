@@ -108,18 +108,18 @@ fn player_sweep(
             continue;
         };
 
-        let LevelCacheResult::Ready(dst_level) = cache.get(&link.url) else {
+        let LevelCacheResult::Ready(dst_level) = cache.get(link.url()) else {
             panic!("linked level not ready")
         };
 
         // Validate destination portal links back to this level + source portal
-        let Some(dst_portal) = dst_level.portal(&link.portal_name) else {
+        let Some(dst_portal) = dst_level.portal(link.portal_name()) else {
             continue;
         };
-        let mut dst_back_url = dst_portal.link.clone();
+        let mut dst_back_url = dst_portal.link_url().clone();
         let dst_back_fragment = dst_back_url.fragment().map(str::to_string);
         dst_back_url.set_fragment(None);
-        if dst_back_url != *level_url || dst_back_fragment.as_ref() != Some(&src_portal.name) {
+        if dst_back_url != *level_url || dst_back_fragment.as_deref() != Some(src_portal.name()) {
             match &best_hit {
                 Some(best) if best.time <= portal_hit.time => {}
                 _ => best_hit = Some(portal_hit),
@@ -151,10 +151,10 @@ fn player_sweep(
         let through_portal_hit = SweepHit {
             time: result.time_of_impact,
             normal: rot_back * Vec3::new(result.normal2.x, result.normal2.y, result.normal2.z),
-            point: src_portal.center
+            point: src_portal.geometry().center()
                 + rot_back
                     * (Vec3::new(result.witness2.x, result.witness2.y, result.witness2.z)
-                        - link.dst_center),
+                        - link.dst_center()),
         };
 
         match &best_hit {
@@ -176,27 +176,31 @@ fn try_teleport(state: &mut PlayerState, cache: &mut LevelCache, start_pos: Vec3
             continue;
         };
 
-        let src_normal = src_portal.normal();
-        let start_side = (start_pos - src_portal.center).dot(src_normal);
-        let end_side = (state.position - src_portal.center).dot(src_normal);
+        let src_geometry = src_portal.geometry();
+        let src_normal = src_geometry.normal();
+        let start_side = (start_pos - src_geometry.center()).dot(src_normal);
+        let end_side = (state.position - src_geometry.center()).dot(src_normal);
+        let crossed = start_side * end_side <= 0.0 && (start_side - end_side).abs() > EPSILON;
 
-        // Crossed from one side to the other and player fully contained within portal bounds
-        let offset = state.position - src_portal.center;
-        let (right, up) = src_portal.local_axes();
-        let half = &state.collider.half_extents;
-        let player_half = Vec3::new(half.x, half.y, half.z);
-        let contained = offset.dot(right).abs() + right.abs().dot(player_half)
-            <= src_portal.dimensions.x / 2.0
-            && offset.dot(up).abs() + up.abs().dot(player_half) <= src_portal.dimensions.y / 2.0;
+        if !crossed {
+            continue;
+        }
 
-        if start_side.signum() != end_side.signum() && contained {
+        let move_delta = state.position - start_pos;
+        let shape_pos = Isometry::translation(start_pos.x, start_pos.y, start_pos.z);
+        let shape_vel = Vector::new(move_delta.x, move_delta.y, move_delta.z);
+        let in_contact = src_portal
+            .sweep(&shape_pos, &shape_vel, &state.collider, 1.0)
+            .is_some();
+
+        if in_contact {
             let yaw_delta = link.yaw_delta();
             state.last_portal = Some((level.url().clone(), name.clone()));
             state.open_factor = -state.open_factor;
             state.position = link.transform_position(state.position, true);
             state.velocity = link.transform_velocity(state.velocity);
             state.rotation.y += yaw_delta;
-            state.level_url = Some(link.url.clone());
+            state.level_url = Some(link.url().clone());
 
             return true;
         }
