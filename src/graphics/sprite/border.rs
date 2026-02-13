@@ -1,6 +1,7 @@
 use glam::Vec2;
 
 use super::Sprite;
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::SYSTEM_TEXTURE_INDEX;
 
@@ -20,7 +21,7 @@ const BOX_CORNER_SIZE: Vec2 = Vec2::new(3.0, 3.0);
 const BOX_EDGE_H_SIZE: Vec2 = Vec2::new(10.0, 3.0);
 const BOX_EDGE_V_SIZE: Vec2 = Vec2::new(3.0, 10.0);
 const BOX_CENTER_SIZE: Vec2 = Vec2::new(10.0, 10.0);
-const COLOR: [u8; 4] = [255, 255, 255, 255];
+const COLOR: Color = Color::WHITE;
 
 pub struct SpriteBorder {
     pub position: Vec2,

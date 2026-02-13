@@ -8,9 +8,17 @@ use super::kind::PortalKind;
 use super::link::PortalLink;
 use super::portal::PortalError;
 use crate::gltf::GLTFMesh;
+use crate::graphics::color::Color;
 
-const WHITE_COLOR: [u8; 4] = [255, 255, 255, 255];
-const ANCHOR_COLOR: [u8; 4] = [255, 0, 255, 255];
+const WHITE_COLOR: Color = Color::WHITE;
+const ANCHOR_COLOR: Color = Color::new(255, 0, 255, 255);
+
+fn push_color(bytes: &mut Vec<u8>, color: Color) {
+    bytes.push(color.r);
+    bytes.push(color.g);
+    bytes.push(color.b);
+    bytes.push(color.a);
+}
 
 fn make_mesh_with_colors(positions: Vec<f32>, colors: Vec<u8>, indices: Vec<u32>) -> GLTFMesh {
     return GLTFMesh::new(positions, indices, None, None, Some(colors));
@@ -20,16 +28,12 @@ fn make_mesh_with_colors(positions: Vec<f32>, colors: Vec<u8>, indices: Vec<u32>
 fn rejects_insufficient_vertices() {
     let mesh = make_mesh_with_colors(
         vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-        vec![
-            ANCHOR_COLOR[0],
-            ANCHOR_COLOR[1],
-            ANCHOR_COLOR[2],
-            ANCHOR_COLOR[3],
-            WHITE_COLOR[0],
-            WHITE_COLOR[1],
-            WHITE_COLOR[2],
-            WHITE_COLOR[3],
-        ],
+        {
+            let mut bytes = Vec::new();
+            push_color(&mut bytes, ANCHOR_COLOR);
+            push_color(&mut bytes, WHITE_COLOR);
+            bytes
+        },
         vec![0, 1],
     );
     let result = PortalGeometry::from_gltf(&mesh);
@@ -43,24 +47,11 @@ fn rejects_non_coplanar_vertices() {
         1.0, 0.0, 0.0, 1.0, 1.0, 0.5, // off plane
         0.0, 1.0, 0.0,
     ];
-    let colors = vec![
-        ANCHOR_COLOR[0],
-        ANCHOR_COLOR[1],
-        ANCHOR_COLOR[2],
-        ANCHOR_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-    ];
+    let mut colors = Vec::new();
+    push_color(&mut colors, ANCHOR_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
     let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
 
     let result = PortalGeometry::from_gltf(&mesh);
@@ -73,32 +64,13 @@ fn accepts_arbitrary_polygon_floor_portal() {
         1.0, 0.0, 0.0, // anchor
         0.5, 0.0, 0.8, -0.5, 0.0, 0.8, -1.0, 0.0, 0.0, -0.5, 0.0, -0.8, 0.5, 0.0, -0.8,
     ];
-    let colors = vec![
-        ANCHOR_COLOR[0],
-        ANCHOR_COLOR[1],
-        ANCHOR_COLOR[2],
-        ANCHOR_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-    ];
+    let mut colors = Vec::new();
+    push_color(&mut colors, ANCHOR_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
     let indices = vec![0, 2, 1, 0, 3, 2, 0, 4, 3, 0, 5, 4];
     let mesh = make_mesh_with_colors(positions, colors, indices);
 
@@ -110,24 +82,11 @@ fn accepts_arbitrary_polygon_floor_portal() {
 #[test]
 fn rejects_missing_anchor_color() {
     let positions = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0];
-    let colors = vec![
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-    ];
+    let mut colors = Vec::new();
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
     let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
 
     let result = PortalGeometry::from_gltf(&mesh);
@@ -141,28 +100,12 @@ fn rejects_ambiguous_anchor_color() {
         1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 2.0, 0.0,
         0.0, // anchor 2 (different position)
     ];
-    let colors = vec![
-        ANCHOR_COLOR[0],
-        ANCHOR_COLOR[1],
-        ANCHOR_COLOR[2],
-        ANCHOR_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        ANCHOR_COLOR[0],
-        ANCHOR_COLOR[1],
-        ANCHOR_COLOR[2],
-        ANCHOR_COLOR[3],
-    ];
+    let mut colors = Vec::new();
+    push_color(&mut colors, ANCHOR_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, ANCHOR_COLOR);
     let indices = vec![0, 1, 2, 0, 2, 3, 0, 4, 1];
     let mesh = make_mesh_with_colors(positions, colors, indices);
 
@@ -177,28 +120,12 @@ fn rejects_unstable_anchor() {
         0.0, 0.0, 0.0, // anchor
         1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0,
     ];
-    let colors = vec![
-        ANCHOR_COLOR[0],
-        ANCHOR_COLOR[1],
-        ANCHOR_COLOR[2],
-        ANCHOR_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-    ];
+    let mut colors = Vec::new();
+    push_color(&mut colors, ANCHOR_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
     let indices = vec![0, 1, 3, 0, 3, 2, 0, 2, 4, 0, 4, 1];
     let mesh = make_mesh_with_colors(positions, colors, indices);
 
@@ -212,24 +139,11 @@ fn wall_portal_computes_yaw_and_roll() {
         0.0, 0.0, 0.0, // anchor
         1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0,
     ];
-    let colors = vec![
-        ANCHOR_COLOR[0],
-        ANCHOR_COLOR[1],
-        ANCHOR_COLOR[2],
-        ANCHOR_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-    ];
+    let mut colors = Vec::new();
+    push_color(&mut colors, ANCHOR_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
     let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
 
     let spec = PortalGeometry::from_gltf(&mesh).unwrap();
@@ -243,24 +157,11 @@ fn rejects_tilted_portal() {
     let positions = vec![
         0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 3.0, 2.12, 2.12, 0.0, 2.12, 2.12,
     ];
-    let colors = vec![
-        ANCHOR_COLOR[0],
-        ANCHOR_COLOR[1],
-        ANCHOR_COLOR[2],
-        ANCHOR_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-        WHITE_COLOR[0],
-        WHITE_COLOR[1],
-        WHITE_COLOR[2],
-        WHITE_COLOR[3],
-    ];
+    let mut colors = Vec::new();
+    push_color(&mut colors, ANCHOR_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
+    push_color(&mut colors, WHITE_COLOR);
     let mesh = make_mesh_with_colors(positions, colors, vec![0, 1, 2, 0, 2, 3]);
 
     let result = PortalGeometry::from_gltf(&mesh);

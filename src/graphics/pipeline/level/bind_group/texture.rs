@@ -14,34 +14,34 @@ pub struct TextureBucket {
 
 pub const TEXTURE_BUCKETS: [TextureBucket; 6] = [
     TextureBucket {
-        width: 2048,
-        height: 2048,
-        layers: 1,
+        width: 0x800,
+        height: 0x800,
+        layers: 0x1,
     },
     TextureBucket {
-        width: 1024,
-        height: 1024,
-        layers: 4,
+        width: 0x400,
+        height: 0x400,
+        layers: 0x4,
     },
     TextureBucket {
-        width: 512,
-        height: 512,
-        layers: 8,
+        width: 0x200,
+        height: 0x200,
+        layers: 0x8,
     },
     TextureBucket {
-        width: 256,
-        height: 256,
-        layers: 32,
+        width: 0x100,
+        height: 0x100,
+        layers: 0x20,
     },
     TextureBucket {
-        width: 128,
-        height: 128,
-        layers: 64,
+        width: 0x80,
+        height: 0x80,
+        layers: 0x40,
     },
     TextureBucket {
-        width: 64,
-        height: 64,
-        layers: 256,
+        width: 0x40,
+        height: 0x40,
+        layers: 0x100,
     },
 ];
 

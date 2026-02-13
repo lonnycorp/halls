@@ -3,8 +3,9 @@ use std::num::NonZeroU64;
 
 use bytemuck::{Pod, Zeroable};
 
-const MAX_TEXTURES: usize = 1024;
+const MAX_TEXTURES: usize = 0x400;
 
+#[derive(Debug, Clone, Copy)]
 pub struct TextureIndexFull;
 
 #[repr(C)]

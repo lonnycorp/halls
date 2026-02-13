@@ -133,12 +133,14 @@ fn create_render_targets(
         .collect();
 }
 
-fn update(
+fn update<'a>(
     state: &mut State,
     gpu: &mut GPUContext,
-    input: &mut InputController<'_>,
+    input: &mut InputController<'a>,
     event_loop: &ActiveEventLoop,
 ) {
+    let input_ref: &InputController<'a> = input;
+
     state.master_sink.set_volume(state.config.volume);
     state.status.swap();
     state.cache.update();
@@ -151,7 +153,7 @@ fn update(
     state.intro.update(&mut overlay::IntroUpdateContext {
         buffer: &mut state.overlay_buffer,
         resolution,
-        input: &*input,
+        input: input_ref,
         status: &mut state.status,
         jingle_effect: &state.jingle_effect,
     });
@@ -159,7 +161,7 @@ fn update(
         event_loop,
         buffer: &mut state.overlay_buffer,
         resolution,
-        input: &*input,
+        input: input_ref,
         status: &mut state.status,
         select_effect: &state.select_effect,
         move_effect: &state.move_effect,
@@ -169,7 +171,7 @@ fn update(
         .update(&mut overlay::MenuSettingsUpdateContext {
             buffer: &mut state.overlay_buffer,
             resolution,
-            input: &*input,
+            input: input_ref,
             status: &mut state.status,
             config: &mut state.config,
             select_effect: &state.select_effect,
@@ -180,7 +182,7 @@ fn update(
         .update(&mut overlay::MenuVisitUpdateContext {
             buffer: &mut state.overlay_buffer,
             resolution,
-            input: &*input,
+            input: input_ref,
             status: &mut state.status,
             player: &mut state.player,
             cache: &mut state.cache,
@@ -201,8 +203,8 @@ fn update(
     state
         .overlay_model
         .upload(&gpu.queue, &state.overlay_buffer);
-    if *state.status.get() == Status::Simulation {
-        if let KeyState::Pressed = input.key(KeyCode::Escape) {
+    if matches!(state.status.get(), Status::Simulation) {
+        if let KeyState::Pressed = input_ref.key(KeyCode::Escape) {
             state.move_effect.reset();
             state.move_effect.play();
             state.walk_effect.pause();
@@ -210,7 +212,7 @@ fn update(
         } else {
             state
                 .player
-                .update(&*input, &mut state.cache, &state.config);
+                .update(input_ref, &mut state.cache, &state.config);
             if state.player.is_walking() {
                 state.walk_effect.play();
             }

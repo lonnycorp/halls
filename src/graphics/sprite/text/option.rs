@@ -2,13 +2,11 @@ use glam::Vec2;
 
 use super::label::SpriteLabel;
 use super::text::TEXT_SIZE;
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::{Glyph, SpriteGlyph};
 
 const INDENT: f32 = TEXT_SIZE.x + 2.0;
-const GREY: [u8; 4] = [128, 128, 128, 255];
-const WHITE: [u8; 4] = [255, 255, 255, 255];
-const CYAN: [u8; 4] = [0, 255, 255, 255];
 
 pub enum OptionState {
     Disabled,
@@ -43,9 +41,9 @@ impl<'a> SpriteTextOption<'a> {
 
     pub fn write_to_model_buffer(&self, buffer: &mut ModelBuffer, resolution: Vec2) {
         let color = match self.state {
-            OptionState::Disabled => GREY,
-            OptionState::Unselected => WHITE,
-            OptionState::Selected => CYAN,
+            OptionState::Disabled => Color::GRAY,
+            OptionState::Unselected => Color::WHITE,
+            OptionState::Selected => Color::CYAN,
         };
 
         if self.hovered {

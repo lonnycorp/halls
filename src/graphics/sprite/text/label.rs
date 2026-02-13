@@ -1,5 +1,6 @@
 use glam::Vec2;
 
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 
 use super::text::{SpriteText, TEXT_SIZE};
@@ -7,13 +8,13 @@ use super::text::{SpriteText, TEXT_SIZE};
 pub struct SpriteLabel<'a> {
     pub position: Vec2,
     pub max_len: usize,
-    pub color: [u8; 4],
+    pub color: Color,
     pub bold: bool,
     pub text: &'a str,
 }
 
 impl<'a> SpriteLabel<'a> {
-    pub fn new(position: Vec2, max_len: usize, color: [u8; 4], bold: bool, text: &'a str) -> Self {
+    pub fn new(position: Vec2, max_len: usize, color: Color, bold: bool, text: &'a str) -> Self {
         return Self {
             position,
             max_len,

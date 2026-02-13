@@ -1,5 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 
+use crate::graphics::color::Color;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct ModelVertex {
@@ -7,7 +9,7 @@ pub struct ModelVertex {
     pub diffuse_uv: [f32; 2],
     pub lightmap_uv: [f32; 2],
     pub texture_ix: u32,
-    pub color: [u8; 4],
+    pub color: Color,
 }
 
 pub fn layout() -> wgpu::VertexBufferLayout<'static> {

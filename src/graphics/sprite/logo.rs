@@ -1,6 +1,7 @@
 use glam::Vec2;
 
 use super::Sprite;
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::SYSTEM_TEXTURE_INDEX;
 
@@ -24,7 +25,7 @@ impl SpriteLogo {
             texture_ix: SYSTEM_TEXTURE_INDEX as u32,
             position,
             size: UV_SIZE,
-            color: [255, 255, 255, self.alpha],
+            color: Color::new(255, 255, 255, self.alpha),
         }
         .write_to_model_buffer(buffer, resolution);
     }

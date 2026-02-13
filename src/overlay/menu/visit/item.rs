@@ -5,13 +5,11 @@ use winit::keyboard::KeyCode;
 use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::{OptionState, SpriteTextInput, SpriteTextOption, TEXT_SIZE};
 use crate::level::cache::LevelCacheResult;
-use crate::player::WIDTH;
 use crate::window::KeyState;
 use crate::{Status, StatusBuffer};
 
 use super::visit::{MenuVisitState, MenuVisitUpdateContext};
 
-const EPSILON: f32 = 0.001;
 const ITEM_INDENT: f32 = TEXT_SIZE.x + 2.0;
 
 pub const MAX_ITEM_NAME_LEN: usize = 14;
@@ -67,11 +65,7 @@ impl MenuVisitItem {
                         state.status_message = Some("Loading...".to_string());
                     }
                     LevelCacheResult::Ready(level) => {
-                        let portal = level.spawn();
-                        let portal_geometry = portal.geometry();
-                        let spawn_pos =
-                            portal_geometry.center() + portal_geometry.normal() * (WIDTH + EPSILON);
-                        ctx.player.set_position(spawn_pos);
+                        ctx.player.set_position(level.spawn_position());
                         ctx.player.set_level_url(visiting_url.clone());
                         state.clear();
                         ctx.status.set(Status::Simulation);

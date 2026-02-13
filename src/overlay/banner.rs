@@ -1,5 +1,6 @@
 use glam::Vec2;
 
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::{SpriteBorder, SpriteLabel, TEXT_SIZE};
 use crate::level::cache::{LevelCache, LevelCacheResult};
@@ -14,7 +15,7 @@ const LABEL_LEN: usize = 7;
 const INSET: f32 = BORDER + TEXT_PADDING;
 const BOX_WIDTH: f32 = MAX_CHARS as f32 * TEXT_SIZE.x + INSET * 2.0;
 const BOX_HEIGHT: f32 = LINE_COUNT * TEXT_SIZE.y + INSET * 2.0;
-const TEXT_COLOR: [u8; 4] = [255, 255, 255, 255];
+const TEXT_COLOR: Color = Color::WHITE;
 
 pub fn update_banner(
     buffer: &mut ModelBuffer,

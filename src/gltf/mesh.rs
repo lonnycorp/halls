@@ -1,6 +1,7 @@
 use glam::{Mat4, Vec2, Vec3};
 
 use super::vertex::GLTFVertex;
+use crate::graphics::color::Color;
 
 pub struct GLTFMesh {
     positions: Vec<f32>,
@@ -9,7 +10,7 @@ pub struct GLTFMesh {
     colors: Vec<u8>,
     indices: Vec<u32>,
     material_indices: Vec<Option<u32>>,
-    materials: Vec<String>,
+    materials: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,9 +34,9 @@ impl GLTFMesh {
             _ => return Err(GLTFMeshError::MultipleScenes),
         };
 
-        let materials: Vec<String> = document
+        let materials: Vec<Option<String>> = document
             .materials()
-            .map(|material| material.name().unwrap_or("unnamed").to_string())
+            .map(|material| material.name().map(str::to_string))
             .collect();
 
         let mut mesh = GLTFMesh {
@@ -71,7 +72,7 @@ impl GLTFMesh {
         return self.indices.len();
     }
 
-    pub fn materials(&self) -> &[String] {
+    pub fn materials(&self) -> &[Option<String>] {
         return &self.materials;
     }
 
@@ -126,12 +127,12 @@ impl GLTFMesh {
         let color = if self.colors.is_empty() {
             None
         } else {
-            Some([
+            Some(Color::new(
                 self.colors[idx * 4],
                 self.colors[idx * 4 + 1],
                 self.colors[idx * 4 + 2],
                 self.colors[idx * 4 + 3],
-            ])
+            ))
         };
 
         return GLTFVertex {

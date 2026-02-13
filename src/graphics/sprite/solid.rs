@@ -1,6 +1,7 @@
 use glam::Vec2;
 
 use super::Sprite;
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::SYSTEM_TEXTURE_INDEX;
 
@@ -10,11 +11,11 @@ const UV_SIZE: Vec2 = Vec2::splat(16.0);
 pub struct SpriteSolid {
     pub position: Vec2,
     pub size: Vec2,
-    pub color: [u8; 4],
+    pub color: Color,
 }
 
 impl SpriteSolid {
-    pub fn new(position: Vec2, size: Vec2, color: [u8; 4]) -> Self {
+    pub fn new(position: Vec2, size: Vec2, color: Color) -> Self {
         return Self {
             position,
             size,

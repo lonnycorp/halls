@@ -3,9 +3,10 @@ use std::num::NonZeroU64;
 
 use bytemuck::{Pod, Zeroable};
 
-const MAX_MATERIALS: usize = 512;
-const MAX_FRAMES: usize = 4096;
+pub const MAX_MATERIAL_ID: usize = 0x1FF;
+const MAX_FRAMES: usize = 0x1000;
 
+#[derive(Debug, Clone, Copy)]
 pub enum MaterialIndexWriteError {
     TooManyMaterials,
     TooManyFrames,
@@ -22,7 +23,7 @@ pub struct MaterialEntry {
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct MaterialIndexStorageBufferData {
-    entries: [MaterialEntry; MAX_MATERIALS],
+    entries: [MaterialEntry; MAX_MATERIAL_ID + 1],
     frames: [u32; MAX_FRAMES],
     next_free_frame: u32,
 }
@@ -38,7 +39,7 @@ impl MaterialIndexStorageBufferData {
         speed: f32,
         texture_ids: &[u32],
     ) -> Result<(), MaterialIndexWriteError> {
-        if material_id >= MAX_MATERIALS {
+        if material_id > MAX_MATERIAL_ID {
             return Err(MaterialIndexWriteError::TooManyMaterials);
         }
         if self.next_free_frame as usize + texture_ids.len() > MAX_FRAMES {

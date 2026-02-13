@@ -1,6 +1,7 @@
 use super::*;
+use crate::graphics::color::Color;
 
-const WHITE: [u8; 4] = [255, 255, 255, 255];
+const WHITE: Color = Color::WHITE;
 
 #[test]
 fn test_invalid_data_returns_load_error() {
@@ -45,7 +46,7 @@ fn test_vertex_with_color_returns_some() {
     );
 
     let vertex = mesh.vertex(0);
-    assert_eq!(vertex.color, Some([70, 80, 90, 64]));
+    assert_eq!(vertex.color, Some(Color::new(70, 80, 90, 64)));
 }
 
 #[test]

@@ -42,7 +42,7 @@ impl MenuHome {
     }
 
     pub fn update(&mut self, ctx: &mut MenuHomeUpdateContext) {
-        if *ctx.status.get() != Status::MenuHome {
+        if !matches!(ctx.status.get(), Status::MenuHome) {
             return;
         }
 

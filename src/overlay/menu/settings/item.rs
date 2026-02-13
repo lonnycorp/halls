@@ -5,6 +5,7 @@ use winit::keyboard::KeyCode;
 use super::settings::MenuSettingsState;
 use crate::audio::Effect;
 use crate::config::{Config, ConfigControl};
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::{
     OptionState, SpriteText, SpriteTextInput, SpriteTextOption, TEXT_SIZE,
@@ -175,7 +176,7 @@ impl MenuSettingsItem {
                     resolution,
                     Vec2::new(value_x, position.y),
                     state.buffered_state.volume,
-                    [255, 255, 255, 255],
+                    Color::WHITE,
                 );
             }
             MenuSettingsItem::MouseSensitivity => {
@@ -184,7 +185,7 @@ impl MenuSettingsItem {
                     resolution,
                     Vec2::new(value_x, position.y),
                     state.buffered_state.mouse_sensitivity,
-                    [255, 255, 255, 255],
+                    Color::WHITE,
                 );
             }
             MenuSettingsItem::Forward
@@ -200,7 +201,7 @@ impl MenuSettingsItem {
                     - name.len() as f32 * TEXT_SIZE.x;
                 for (j, c) in name.chars().enumerate() {
                     let pos = Vec2::new(x + j as f32 * TEXT_SIZE.x, position.y);
-                    SpriteText::new(c, false, pos, [255, 255, 255, 255])
+                    SpriteText::new(c, false, pos, Color::WHITE)
                         .write_to_model_buffer(buffer, resolution);
                 }
             }
@@ -232,25 +233,23 @@ impl MenuSettingsItem {
 }
 
 fn adjust_slider(value: &mut f32, input: &InputController<'_>, move_effect: &Effect) {
+    let mut next = *value;
+
     if let KeyState::Pressed = input.key(KeyCode::ArrowLeft) {
-        *value = (*value - ADJUST_STEP).clamp(0.0, 1.0);
+        next = (next - ADJUST_STEP).clamp(0.0, 1.0);
         move_effect.reset();
         move_effect.play();
     }
     if let KeyState::Pressed = input.key(KeyCode::ArrowRight) {
-        *value = (*value + ADJUST_STEP).clamp(0.0, 1.0);
+        next = (next + ADJUST_STEP).clamp(0.0, 1.0);
         move_effect.reset();
         move_effect.play();
     }
+
+    *value = next;
 }
 
-fn draw_pct(
-    buffer: &mut ModelBuffer,
-    resolution: Vec2,
-    position: Vec2,
-    value: f32,
-    color: [u8; 4],
-) {
+fn draw_pct(buffer: &mut ModelBuffer, resolution: Vec2, position: Vec2, value: f32, color: Color) {
     let pct = format!("{}%", (value * 100.0).round() as u32);
     let x = position.x + MAX_ITEM_VALUE_LEN as f32 * TEXT_SIZE.x - pct.len() as f32 * TEXT_SIZE.x;
     for (j, c) in pct.chars().enumerate() {

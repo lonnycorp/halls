@@ -1,3 +1,4 @@
+use glam::Vec3;
 use std::collections::HashMap;
 use url::Url;
 
@@ -14,7 +15,7 @@ use super::portal::LevelPortal;
 pub struct LevelState {
     pub url: Url,
     pub meta: LevelManifestMeta,
-    pub spawn: String,
+    pub spawn: Vec3,
     pub trimesh: TriMesh,
     pub model: Model,
     pub texture_index: TextureIndexStorageBuffer,

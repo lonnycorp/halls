@@ -22,7 +22,6 @@ pub enum PortalError {
 }
 
 pub struct LevelPortal {
-    name: String,
     geometry: PortalGeometry,
     model: Model,
     collider: TriMesh,
@@ -30,15 +29,8 @@ pub struct LevelPortal {
 }
 
 impl LevelPortal {
-    pub fn new(
-        name: String,
-        geometry: PortalGeometry,
-        model: Model,
-        collider: TriMesh,
-        link: Url,
-    ) -> Self {
+    pub fn new(geometry: PortalGeometry, model: Model, collider: TriMesh, link: Url) -> Self {
         return Self {
-            name,
             geometry,
             model,
             collider,
@@ -48,10 +40,6 @@ impl LevelPortal {
 
     pub fn geometry(&self) -> &PortalGeometry {
         return &self.geometry;
-    }
-
-    pub fn name(&self) -> &str {
-        return &self.name;
     }
 
     pub fn link_url(&self) -> &Url {
