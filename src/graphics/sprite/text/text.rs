@@ -1,5 +1,6 @@
 use glam::Vec2;
 
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::Sprite;
 use crate::FONT_TEXTURE_INDEX;
@@ -16,11 +17,11 @@ pub struct SpriteText {
     pub c: char,
     pub bold: bool,
     pub position: Vec2,
-    pub color: [u8; 4],
+    pub color: Color,
 }
 
 impl SpriteText {
-    pub fn new(c: char, bold: bool, position: Vec2, color: [u8; 4]) -> Self {
+    pub fn new(c: char, bold: bool, position: Vec2, color: Color) -> Self {
         return Self {
             c,
             bold,

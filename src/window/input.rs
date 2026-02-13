@@ -1,7 +1,7 @@
 use glam::Vec2;
 use winit::keyboard::KeyCode;
 
-const KEY_COUNT: usize = 256;
+const KEY_COUNT: usize = 0x100;
 
 pub enum KeyState {
     Pressed,

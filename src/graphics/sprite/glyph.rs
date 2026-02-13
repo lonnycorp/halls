@@ -1,6 +1,7 @@
 use glam::Vec2;
 
 use super::Sprite;
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::SYSTEM_TEXTURE_INDEX;
 
@@ -24,11 +25,11 @@ impl Glyph {
 pub struct SpriteGlyph {
     pub glyph: Glyph,
     pub position: Vec2,
-    pub color: [u8; 4],
+    pub color: Color,
 }
 
 impl SpriteGlyph {
-    pub fn new(glyph: Glyph, position: Vec2, color: [u8; 4]) -> Self {
+    pub fn new(glyph: Glyph, position: Vec2, color: Color) -> Self {
         return Self {
             glyph,
             position,

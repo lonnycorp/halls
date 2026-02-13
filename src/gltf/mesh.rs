@@ -1,6 +1,12 @@
 use glam::{Mat4, Vec2, Vec3};
 
 use super::vertex::GLTFVertex;
+use crate::graphics::color::Color;
+
+pub struct GLTFMaterial {
+    pub name: Option<String>,
+    pub color: Color,
+}
 
 pub struct GLTFMesh {
     positions: Vec<f32>,
@@ -9,7 +15,7 @@ pub struct GLTFMesh {
     colors: Vec<u8>,
     indices: Vec<u32>,
     material_indices: Vec<Option<u32>>,
-    materials: Vec<String>,
+    materials: Vec<GLTFMaterial>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,9 +39,21 @@ impl GLTFMesh {
             _ => return Err(GLTFMeshError::MultipleScenes),
         };
 
-        let materials: Vec<String> = document
+        let materials: Vec<GLTFMaterial> = document
             .materials()
-            .map(|material| material.name().unwrap_or("unnamed").to_string())
+            .map(|material| {
+                let factor = material.pbr_metallic_roughness().base_color_factor();
+                let color = Color::new(
+                    (factor[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (factor[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (factor[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                    (factor[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                );
+                return GLTFMaterial {
+                    name: material.name().map(str::to_string),
+                    color,
+                };
+            })
             .collect();
 
         let mut mesh = GLTFMesh {
@@ -71,7 +89,7 @@ impl GLTFMesh {
         return self.indices.len();
     }
 
-    pub fn materials(&self) -> &[String] {
+    pub fn materials(&self) -> &[GLTFMaterial] {
         return &self.materials;
     }
 
@@ -126,12 +144,12 @@ impl GLTFMesh {
         let color = if self.colors.is_empty() {
             None
         } else {
-            Some([
+            Some(Color::new(
                 self.colors[idx * 4],
                 self.colors[idx * 4 + 1],
                 self.colors[idx * 4 + 2],
                 self.colors[idx * 4 + 3],
-            ])
+            ))
         };
 
         return GLTFVertex {

@@ -86,7 +86,7 @@ fn player_sweep(
             point: Vec3::new(r.witness2.x, r.witness2.y, r.witness2.z),
         });
 
-    for (_, src_portal) in level.portals() {
+    for (name, src_portal) in level.portals() {
         let Some(portal_hit) = src_portal
             .sweep(&shape_pos, &shape_vel, &state.collider, max_toi)
             .map(|r| SweepHit {
@@ -119,7 +119,7 @@ fn player_sweep(
         let mut dst_back_url = dst_portal.link_url().clone();
         let dst_back_fragment = dst_back_url.fragment().map(str::to_string);
         dst_back_url.set_fragment(None);
-        if dst_back_url != *level_url || dst_back_fragment.as_deref() != Some(src_portal.name()) {
+        if dst_back_url != *level_url || dst_back_fragment.as_deref() != Some(name.as_str()) {
             match &best_hit {
                 Some(best) if best.time <= portal_hit.time => {}
                 _ => best_hit = Some(portal_hit),

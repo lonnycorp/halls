@@ -5,13 +5,14 @@ use glam::Vec2;
 use winit::keyboard::KeyCode;
 
 use crate::audio::Effect;
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::{SpriteLogo, SpriteSolid, SpriteText, TEXT_SIZE};
 use crate::window::{InputController, KeyState};
 use crate::{Status, StatusBuffer};
 
 const TIME_STEP: f32 = 0.002;
-const WHITE: [u8; 4] = [255, 255, 255, 255];
+const WHITE: Color = Color::WHITE;
 
 const INTRO_START: f32 = 0.15;
 const INTRO_FADE_OUT_START: f32 = 0.85;
@@ -50,7 +51,7 @@ impl Intro {
     }
 
     pub fn update(&mut self, ctx: &mut IntroUpdateContext) {
-        if *ctx.status.get() != Status::Intro {
+        if !matches!(ctx.status.get(), Status::Intro) {
             return;
         }
 
@@ -93,7 +94,7 @@ impl Intro {
                 c as char,
                 true,
                 Vec2::new(x, title_y - y_offset),
-                [0, 0, 0, a],
+                Color::new(0, 0, 0, a),
             )
             .write_to_model_buffer(ctx.buffer, ctx.resolution);
         }

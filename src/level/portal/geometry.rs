@@ -1,6 +1,7 @@
 use glam::Vec3;
 
 use crate::gltf::GLTFMesh;
+use crate::graphics::color::Color;
 
 use super::kind::PortalKind;
 use super::portal::PortalError;
@@ -17,14 +18,14 @@ pub struct PortalGeometry {
 
 struct MergedVertex {
     position: Vec3,
-    color: Option<[u8; 4]>,
+    color: Option<Color>,
 }
 
 const EPSILON: f32 = 0.001;
 const ROLL_EPSILON: f32 = 0.001;
 const ANGLE_EPSILON: f32 = 0.001;
 const LENGTH_EPSILON: f32 = 0.001;
-const ANCHOR_COLOR: [u8; 4] = [255, 0, 255, 255];
+const ANCHOR_COLOR: Color = Color::MAGENTA;
 
 impl PortalGeometry {
     pub fn new(

@@ -1,5 +1,6 @@
 use glam::Vec2;
 
+use crate::graphics::color::Color;
 use crate::graphics::model::{ModelBuffer, ModelVertex};
 
 // CCW winding: TL(0), BL(1), BR(2), TL(0), BR(2), TR(3)
@@ -11,7 +12,7 @@ pub struct Sprite {
     pub texture_ix: u32,
     pub position: Vec2,
     pub size: Vec2,
-    pub color: [u8; 4],
+    pub color: Color,
 }
 
 impl Sprite {

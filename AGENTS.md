@@ -18,7 +18,6 @@
 - `mod.rs` files should only contain module declarations and re-exports
 - Do not put logic or implementations in `mod.rs`
 - Use singular names for files (e.g., `macro.rs` not `macros.rs`)
-- Prefer destructuring references vs. dereferencing them as-needed
 - Prefer to use explicit `return` keywords wherever possible
 - Tests must be in separate test modules, never inline
 - Use `foo/test.rs` alongside `foo/bar.rs`, not `#[cfg(test)]` blocks within implementation files

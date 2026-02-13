@@ -1,6 +1,7 @@
 use super::fetch::FetchError;
 use crate::audio::TrackDataError;
 use crate::gltf::GLTFMeshError;
+use crate::graphics::storage::{MaterialIndexWriteError, TextureIndexFull};
 
 use super::manifest::LevelManifestError;
 use super::portal::PortalError;
@@ -30,10 +31,8 @@ pub enum LevelLoadError {
     URLInvalid(String),
     InvalidMaterialTextureDimensions(String),
     TextureBucketExhausted(String),
-    TextureIndexFull(String),
-    MaterialIndexFull(String),
-    NoMaterials,
-    TooManyMaterials,
+    TextureIndex(TextureIndexFull),
+    MaterialIndex(MaterialIndexWriteError),
 }
 
 impl std::fmt::Display for LevelLoadError {
@@ -62,14 +61,15 @@ impl std::fmt::Display for LevelLoadError {
             LevelLoadError::TextureBucketExhausted(material) => {
                 return write!(f, "texture bucket exhausted for material {material}")
             }
-            LevelLoadError::TextureIndexFull(material) => {
-                return write!(f, "texture index full for material {material}")
-            }
-            LevelLoadError::MaterialIndexFull(material) => {
-                return write!(f, "material index full for material {material}")
-            }
-            LevelLoadError::NoMaterials => return write!(f, "no materials"),
-            LevelLoadError::TooManyMaterials => return write!(f, "too many materials (max 256)"),
+            LevelLoadError::TextureIndex(_) => return write!(f, "texture index is full"),
+            LevelLoadError::MaterialIndex(error) => match error {
+                MaterialIndexWriteError::TooManyMaterials => {
+                    return write!(f, "material index has too many materials")
+                }
+                MaterialIndexWriteError::TooManyFrames => {
+                    return write!(f, "material index has too many frames")
+                }
+            },
         }
     }
 }

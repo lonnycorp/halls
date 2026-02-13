@@ -1,10 +1,11 @@
 use glam::Vec2;
 
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 
 use super::text::{SpriteText, TEXT_SIZE};
 
-const COLOR: [u8; 4] = [255, 255, 255, 255];
+const COLOR: Color = Color::WHITE;
 const BLINK_PERIOD: u32 = 30;
 
 pub struct SpriteTextInput<'a> {

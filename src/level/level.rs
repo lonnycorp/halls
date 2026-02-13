@@ -1,3 +1,4 @@
+use glam::{Vec2, Vec3};
 use std::collections::HashMap;
 use url::Url;
 
@@ -7,8 +8,9 @@ use parry3d::shape::{Cuboid, TriMesh};
 
 use super::fetch::FetchedData;
 use crate::audio::TrackData;
-use crate::gltf::GLTFMesh;
-use crate::graphics::model::{Model, ModelBuffer};
+use crate::gltf::{GLTFMaterial, GLTFMesh};
+use crate::graphics::color::Color;
+use crate::graphics::model::{Model, ModelBuffer, ModelVertex};
 use crate::graphics::pipeline::level::{PipelineLevelBindGroupTexture, TEXTURE_BUCKETS};
 use crate::graphics::storage::{
     MaterialIndexStorageBuffer, MaterialIndexStorageBufferData, TextureIndexStorageBuffer,
@@ -28,8 +30,14 @@ fn find_texture_bucket(w: u32, h: u32) -> Option<usize> {
         .position(|b| b.width == w && b.height == h);
 }
 
-const FALLBACK_TEXTURE_SIZE: u32 = 64;
-const WHITE_RGBA: [u8; 4] = [255, 255, 255, 255];
+const FALLBACK_TEXTURE_SIZE: u32 = 0x40;
+
+fn material_label(ix: usize, material: &GLTFMaterial) -> String {
+    if let Some(name) = &material.name {
+        return name.clone();
+    }
+    return format!("<unnamed:{ix}>");
+}
 
 pub struct Level {
     pub(super) state: LevelState,
@@ -75,8 +83,8 @@ impl Level {
         return self.state.portals.iter();
     }
 
-    pub fn spawn(&self) -> &LevelPortal {
-        return &self.state.portals[&self.state.spawn];
+    pub fn spawn_position(&self) -> Vec3 {
+        return self.state.spawn;
     }
 
     pub fn render(&self, ctx: LevelRenderContext) {
@@ -108,10 +116,34 @@ impl Level {
             asset: manifest.level.model.clone(),
             error: e,
         })?;
+        let materials: &[GLTFMaterial] = mesh.materials();
+
+        let mut material_vertex_color: Vec<Color> = Vec::with_capacity(materials.len());
+        for material in materials {
+            let has_manifest_texture = material
+                .name
+                .as_ref()
+                .is_some_and(|name| manifest.level.material.contains_key(name));
+            if has_manifest_texture {
+                material_vertex_color.push(Color::WHITE);
+                continue;
+            }
+            material_vertex_color.push(material.color);
+        }
 
         let mut buffer = ModelBuffer::new();
         for v in mesh.model_vertices() {
-            v.write_to_model_buffer(&mut buffer);
+            let material_color = match v.material_ix {
+                Some(ix) => material_vertex_color[ix as usize],
+                None => Color::WHITE,
+            };
+            buffer.push(ModelVertex {
+                position: v.position.into(),
+                diffuse_uv: v.diffuse_uv.unwrap_or(Vec2::ZERO).into(),
+                lightmap_uv: v.lightmap_uv.unwrap_or(Vec2::ZERO).into(),
+                texture_ix: v.material_ix.unwrap_or(0),
+                color: material_color,
+            });
         }
         let mut model = Model::new(device, mesh.vertex_count());
         model.upload(queue, &buffer);
@@ -148,7 +180,12 @@ impl Level {
         let fallback_image = image::RgbaImage::from_pixel(
             FALLBACK_TEXTURE_SIZE,
             FALLBACK_TEXTURE_SIZE,
-            image::Rgba(WHITE_RGBA),
+            image::Rgba([
+                Color::WHITE.r,
+                Color::WHITE.g,
+                Color::WHITE.b,
+                Color::WHITE.a,
+            ]),
         );
         let fallback_layer = next_free[fallback_bucket_ix];
         if fallback_layer >= TEXTURE_BUCKETS[fallback_bucket_ix].layers {
@@ -160,19 +197,15 @@ impl Level {
         next_free[fallback_bucket_ix] += 1;
         let fallback_texture_id = texture_index_data
             .write(fallback_bucket_ix as u32, fallback_layer as u32)
-            .map_err(|_| LevelLoadError::TextureIndexFull("fallback".to_string()))?;
+            .map_err(LevelLoadError::TextureIndex)?;
 
-        if mesh.materials().is_empty() {
-            return Err(LevelLoadError::NoMaterials);
-        }
-
-        if mesh.materials().len() > 256 {
-            return Err(LevelLoadError::TooManyMaterials);
-        }
-
-        for (ix, material_name) in mesh.materials().iter().enumerate() {
-            if let Some(material) = manifest.level.material.get(material_name) {
-                let (frame_paths, animation_speed) = material.frame_data();
+        for (ix, material) in materials.iter().enumerate() {
+            if let Some(material_manifest) = material
+                .name
+                .as_ref()
+                .and_then(|name| manifest.level.material.get(name))
+            {
+                let (frame_paths, animation_speed) = material_manifest.frame_data();
                 let mut frames: Vec<u32> = Vec::with_capacity(frame_paths.len());
 
                 for image_path in frame_paths {
@@ -197,14 +230,16 @@ impl Level {
                     let (w, h) = img.dimensions();
 
                     let bucket_ix = find_texture_bucket(w, h).ok_or_else(|| {
-                        LevelLoadError::InvalidMaterialTextureDimensions(material_name.clone())
+                        LevelLoadError::InvalidMaterialTextureDimensions(material_label(
+                            ix, material,
+                        ))
                     })?;
 
                     let layer = next_free[bucket_ix];
                     if layer >= TEXTURE_BUCKETS[bucket_ix].layers {
-                        return Err(LevelLoadError::TextureBucketExhausted(
-                            material_name.clone(),
-                        ));
+                        return Err(LevelLoadError::TextureBucketExhausted(material_label(
+                            ix, material,
+                        )));
                     }
 
                     diffuse[bucket_ix].write_texture(queue, layer, &img);
@@ -212,19 +247,19 @@ impl Level {
 
                     let texture_id = texture_index_data
                         .write(bucket_ix as u32, layer as u32)
-                        .map_err(|_| LevelLoadError::TextureIndexFull(material_name.clone()))?;
+                        .map_err(LevelLoadError::TextureIndex)?;
                     path_to_texture_id.insert(image_path.to_string(), texture_id);
                     frames.push(texture_id);
                 }
 
                 material_index_data
                     .write(ix, animation_speed, &frames)
-                    .map_err(|_| LevelLoadError::MaterialIndexFull(material_name.clone()))?;
+                    .map_err(LevelLoadError::MaterialIndex)?;
                 continue;
             }
             material_index_data
                 .write(ix, 0.0, &[fallback_texture_id])
-                .map_err(|_| LevelLoadError::MaterialIndexFull(material_name.clone()))?;
+                .map_err(LevelLoadError::MaterialIndex)?;
         }
 
         let lightmap_texture_id = match &manifest.level.lightmap {
@@ -255,7 +290,7 @@ impl Level {
                 diffuse[bucket_ix].write_texture(queue, layer, &img);
                 texture_index_data
                     .write(bucket_ix as u32, layer as u32)
-                    .map_err(|_| LevelLoadError::TextureIndexFull(lightmap_path.clone()))?
+                    .map_err(LevelLoadError::TextureIndex)?
             }
             None => fallback_texture_id,
         };
@@ -299,8 +334,7 @@ impl Level {
             portal_model.upload(queue, &portal_buffer);
             let portal_collider = TriMesh::from(&portal_mesh);
 
-            let portal =
-                LevelPortal::new(name.clone(), geometry, portal_model, portal_collider, link);
+            let portal = LevelPortal::new(geometry, portal_model, portal_collider, link);
             portals.insert(name.clone(), portal);
         }
 
@@ -328,7 +362,7 @@ impl Level {
             state: LevelState {
                 url,
                 meta: manifest.meta,
-                spawn: manifest.spawn,
+                spawn: Vec3::from_array(manifest.level.spawn),
                 trimesh,
                 model,
                 texture_index,

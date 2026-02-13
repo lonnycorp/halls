@@ -6,6 +6,7 @@ use strum::{EnumCount, IntoEnumIterator};
 
 use crate::audio::Effect;
 use crate::config::Config;
+use crate::graphics::color::Color;
 use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::{SpriteBorder, SpriteLabel, TEXT_SIZE};
 use crate::level::cache::LevelCache;
@@ -26,7 +27,7 @@ const BOX_WIDTH: f32 = ROW_WIDTH + INSET * 2.0;
 const BOX_HEIGHT: f32 = ITEM_COUNT as f32 * TEXT_SIZE.y + INSET * 2.0;
 const STATUS_MAX_CHARS: usize = ((BOX_WIDTH - INSET * 2.0) / TEXT_SIZE.x) as usize;
 
-const WHITE: [u8; 4] = [255, 255, 255, 255];
+const WHITE: Color = Color::WHITE;
 
 pub struct MenuVisitState {
     pub hovered: usize,
@@ -77,7 +78,7 @@ impl MenuVisit {
     }
 
     pub fn update(&mut self, ctx: &mut MenuVisitUpdateContext) {
-        if *ctx.status.get() != Status::MenuVisit {
+        if !matches!(ctx.status.get(), Status::MenuVisit) {
             return;
         }
 

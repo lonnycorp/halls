@@ -139,7 +139,7 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                 LevelRenderSchema::Current {
                     last_portal: Some((url, portal)),
                     ..
-                } => *url == *link.url() && portal == link.portal_name(),
+                } => url == link.url() && portal == link.portal_name(),
                 _ => false,
             };
 
@@ -189,13 +189,13 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                 LevelRenderContext {
                     device,
                     queue,
-                    encoder: &mut *encoder,
+                    encoder,
                     camera,
                     tick,
                     projection,
                     render_targets,
-                    cache: &mut *cache,
-                    state: &mut *render_state,
+                    cache,
+                    state: render_state,
                     pipeline_level,
                     pipeline_portal,
                     color_view: rt.color_view(),

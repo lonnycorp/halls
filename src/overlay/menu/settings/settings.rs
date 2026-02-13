@@ -70,7 +70,7 @@ impl MenuSettings {
     }
 
     pub fn update(&mut self, ctx: &mut MenuSettingsUpdateContext) {
-        if *ctx.status.get() != Status::MenuSettings {
+        if !matches!(ctx.status.get(), Status::MenuSettings) {
             return;
         }
 

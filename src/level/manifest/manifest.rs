@@ -4,12 +4,14 @@ use std::collections::HashMap;
 const MANIFEST_VERSION: &str = "coco";
 const MAX_PORTALS: usize = 4;
 
+fn default_spawn() -> [f32; 3] {
+    return [0.0, 0.0, 0.0];
+}
+
 #[derive(Debug, Deserialize)]
 struct LevelManifestPortalRaw {
     pub model: String,
     pub link: String,
-    #[serde(default)]
-    pub spawn: bool,
 }
 
 #[derive(Debug)]
@@ -32,12 +34,14 @@ pub enum LevelManifestMaterial {
 
 impl LevelManifestMaterial {
     pub fn frame_data(&self) -> (&[String], f32) {
-        match self {
-            LevelManifestMaterial::Static { image } => return (std::slice::from_ref(image), 0.0),
+        match *self {
+            LevelManifestMaterial::Static { ref image } => {
+                return (std::slice::from_ref(image), 0.0);
+            }
             LevelManifestMaterial::Animated {
-                images,
+                ref images,
                 animation_speed,
-            } => return (images, *animation_speed),
+            } => return (images, animation_speed),
         }
     }
 }
@@ -48,6 +52,8 @@ pub struct LevelManifestLevel {
     pub collider: Option<String>,
     pub lightmap: Option<String>,
     pub track: Option<String>,
+    #[serde(default = "default_spawn")]
+    pub spawn: [f32; 3],
     #[serde(default)]
     pub material: HashMap<String, LevelManifestMaterial>,
 }
@@ -74,7 +80,6 @@ pub struct LevelManifest {
     pub meta: LevelManifestMeta,
     pub level: LevelManifestLevel,
     pub portal: HashMap<String, LevelManifestPortal>,
-    pub spawn: String,
 }
 
 #[derive(Debug, Clone)]
@@ -82,8 +87,6 @@ pub enum LevelManifestError {
     Load,
     TooManyPortals,
     InvalidVersion,
-    NoSpawnPortal,
-    MultipleSpawnPortals,
 }
 
 impl LevelManifest {
@@ -102,16 +105,8 @@ impl LevelManifest {
         }
 
         let mut portal = HashMap::new();
-        let mut spawn: Option<String> = None;
 
         for (name, entry) in raw.portal {
-            if entry.spawn {
-                if spawn.is_some() {
-                    return Err(LevelManifestError::MultipleSpawnPortals);
-                }
-                spawn = Some(name.clone());
-            }
-
             portal.insert(
                 name,
                 LevelManifestPortal {
@@ -121,13 +116,10 @@ impl LevelManifest {
             );
         }
 
-        let spawn = spawn.ok_or(LevelManifestError::NoSpawnPortal)?;
-
         return Ok(Self {
             meta: raw.meta,
             level: raw.level,
             portal,
-            spawn,
         });
     }
 }
