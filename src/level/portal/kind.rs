@@ -1,17 +1,17 @@
 use glam::Vec3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PortalKind {
+pub enum LevelPortalKind {
     Wall,
     Floor,
     Ceiling,
 }
 
-impl PortalKind {
+impl LevelPortalKind {
     pub fn reference_axis(&self) -> Vec3 {
         return match self {
-            PortalKind::Wall => Vec3::Y,
-            PortalKind::Floor | PortalKind::Ceiling => Vec3::X,
+            LevelPortalKind::Wall => Vec3::Y,
+            LevelPortalKind::Floor | LevelPortalKind::Ceiling => Vec3::X,
         };
     }
 }

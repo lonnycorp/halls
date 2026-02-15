@@ -1,16 +1,45 @@
+use glam::Vec2;
+use std::collections::HashMap;
 use std::sync::Arc;
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::Key;
 use winit::window::{CursorGrabMode, Window as WinitWindow};
 
-pub struct GPUContext {
-    pub handle: Arc<WinitWindow>,
-    surface: wgpu::Surface<'static>,
-    pub device: Arc<wgpu::Device>,
-    pub queue: Arc<wgpu::Queue>,
-    config: wgpu::SurfaceConfiguration,
+pub enum WindowInputEdge {
+    Pressed,
+    Released,
 }
 
-impl GPUContext {
-    pub fn new(handle: Arc<WinitWindow>) -> Self {
+pub struct WindowInputKey {
+    pub tick: u64,
+    pub edge: WindowInputEdge,
+}
+
+pub struct WindowState {
+    pub handle: Arc<WinitWindow>,
+    pub surface: wgpu::Surface<'static>,
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>,
+    pub config: wgpu::SurfaceConfiguration,
+    pub input_mouse_delta: Vec2,
+    pub input_typed_chars: String,
+    pub input_tick: u64,
+    pub input_keys: HashMap<Key, WindowInputKey>,
+    pub input_last_pressed: Option<Key>,
+}
+
+impl WindowState {
+    pub fn new(event_loop: &ActiveEventLoop) -> Self {
+        let handle = Arc::new(
+            event_loop
+                .create_window(
+                    WinitWindow::default_attributes()
+                        .with_title(crate::WINDOW_TITLE)
+                        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None))),
+                )
+                .unwrap(),
+        );
+
         let size = handle.inner_size();
 
         let instance = wgpu::Instance::default();
@@ -58,30 +87,11 @@ impl GPUContext {
             device,
             queue,
             config,
+            input_mouse_delta: Vec2::ZERO,
+            input_typed_chars: String::new(),
+            input_tick: 1,
+            input_keys: HashMap::new(),
+            input_last_pressed: None,
         };
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0 && height > 0 {
-            self.config.width = width;
-            self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
-        }
-    }
-
-    pub fn current_texture(&self) -> wgpu::SurfaceTexture {
-        return self.surface.get_current_texture().unwrap();
-    }
-
-    pub fn size(&self) -> (u32, u32) {
-        return (self.config.width, self.config.height);
-    }
-
-    pub fn aspect(&self) -> f32 {
-        return self.config.width as f32 / self.config.height as f32;
-    }
-
-    pub fn format(&self) -> wgpu::TextureFormat {
-        return self.config.format;
     }
 }

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, IntoEnumIterator};
 use url::Url;
-use winit::keyboard::KeyCode;
+use winit::keyboard::Key;
 
 use super::ConfigControl;
 
@@ -26,7 +26,7 @@ pub struct Config {
     pub volume: f32,
     pub mouse_sensitivity: f32,
     pub default_url: Url,
-    controls: [KeyCode; ConfigControl::COUNT],
+    controls: [Key; ConfigControl::COUNT],
 }
 
 impl Config {
@@ -47,8 +47,8 @@ impl Config {
     }
 
     pub fn new() -> Self {
-        let controls: [KeyCode; ConfigControl::COUNT] = ConfigControl::iter()
-            .map(|c| c.default_key_code())
+        let controls: [Key; ConfigControl::COUNT] = ConfigControl::iter()
+            .map(|c| c.key_default())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -60,11 +60,11 @@ impl Config {
         };
     }
 
-    pub fn keycode_get(&self, control: ConfigControl) -> KeyCode {
-        return self.controls[control as usize];
+    pub fn key_get(&self, control: ConfigControl) -> &Key {
+        return &self.controls[control as usize];
     }
 
-    pub fn keycode_set(&mut self, control: ConfigControl, key: KeyCode) {
+    pub fn key_set(&mut self, control: ConfigControl, key: Key) {
         self.controls[control as usize] = key;
     }
 }

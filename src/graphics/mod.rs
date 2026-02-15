@@ -1,4 +1,3 @@
-pub mod color;
 pub mod model;
 pub mod pipeline;
 pub mod render_target;

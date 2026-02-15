@@ -1,7 +1,7 @@
 use glam::{Vec2, Vec3};
 
-use crate::graphics::color::Color;
-use crate::graphics::model::{ModelBuffer, ModelVertex};
+use crate::color::Color;
+use crate::graphics::model::ModelVertex;
 
 pub struct GLTFVertex {
     pub position: Vec3,
@@ -12,13 +12,12 @@ pub struct GLTFVertex {
 }
 
 impl GLTFVertex {
-    pub fn write_to_model_buffer(&self, buffer: &mut ModelBuffer) {
-        buffer.push(ModelVertex {
-            position: self.position.into(),
-            diffuse_uv: self.diffuse_uv.unwrap_or(Vec2::ZERO).into(),
-            lightmap_uv: self.lightmap_uv.unwrap_or(Vec2::ZERO).into(),
-            texture_ix: self.material_ix.unwrap_or(0),
-            color: self.color.unwrap_or(Color::WHITE),
-        });
+    pub fn to_model_vertex(&self) -> ModelVertex {
+        return ModelVertex {
+            position: self.position,
+            diffuse_uv: self.diffuse_uv.unwrap_or(Vec2::ZERO),
+            lightmap_uv: self.lightmap_uv.unwrap_or(Vec2::ZERO),
+            material_ix: self.material_ix.unwrap_or(0),
+        };
     }
 }

@@ -23,64 +23,126 @@ A level is a collection of assets linked together by a `manifest.json`. The mani
 {
     "_version": "coco",
     "meta": {
-        "name": "My Level",
-        "author": "Author Name",
-        "track": "Song Title - Artist"
+        "name": "My Level"
     },
     "level": {
-        "model": "mesh.glb",
-        "collider": "collider.glb",
-        "spawn": [0.0, 0.0, 0.0],
-        "lightmap": "lightmap.png",
-        "track": "music.ogg",
-        "material": {
-            "MyMaterial": { "image": "texture.png", "tint": [255, 255, 255] }
+        "mesh": "mesh.glb",
+        "surface": {
+            "MyMaterial": {
+                "collider": "Wall",
+                "type": "TextureSingle",
+                "frame": "texture.png",
+                "color": [255, 255, 255, 255],
+                "unlit": false
+            }
         }
     },
-    "portal": {
-        "my_portal": {
-            "model": "portal.glb",
-            "link": "../other_level/manifest.json#their_portal"
-        }
-    }
+    "portal": {}
 }
 ```
 
-`meta.name` and `level.model` are required. Everything else is optional. If `level.spawn` is omitted, the player spawn defaults to `[0.0, 0.0, 0.0]`.
+Required fields:
+
+- `_version` (must be `"coco"`)
+- `meta.name`
+- `level.mesh`
+- `level.surface`
+- `portal`
+
+Optional fields:
+
+- `meta.author`
+- `meta.track`
+- `level.spawn`
+- `level.lightmap`
+- `level.track`
+
+Limits:
+
+- `portal` may be empty (`{}`), but cannot contain more than 4 entries.
 
 ### Manifest Fields
 
 - `meta.name`: level name shown in UI.
 - `meta.author`: optional author credit shown in UI.
 - `meta.track`: optional track credit shown in UI.
-- `level.model`: main rendered level mesh (`.glb`).
-- `level.collider`: optional collider mesh (`.glb`). If omitted, `level.model` is used for collision.
-- `level.spawn`: optional player spawn position `[x, y, z]`. Defaults to `[0.0, 0.0, 0.0]`.
+- `level.mesh`: level mesh (`.glb`), used for both rendering and collision.
+- `level.spawn`: optional player spawn position `[x, y, z]` (defaults to origin).
 - `level.track`: optional background music file.
 - `level.lightmap`: optional lightmap texture.
-- `level.material`: optional material texture overrides keyed by glTF material name.
-- `portal.<name>.model`: portal mesh (`.glb`).
+- `level.surface`: required surface map keyed by glTF surface name.
+- `portal`: required portal map (can be empty), max 4 entries.
+- `portal.<name>.mesh`: portal mesh (`.glb`).
 - `portal.<name>.link`: relative URL to destination manifest with `#portal_name` fragment.
 
-### Materials And Color
+### Surface Types
 
-Materials referenced by the level model can have entries in `level.material`. A material entry can be a static texture:
+Each `level.surface.<surface_name>` entry is one of the following:
 
-```json
-{ "image": "texture.png", "tint": [255, 255, 255] }
-```
-
-Or an animated texture that cycles through a series of frames:
+Single texture:
 
 ```json
-{ "images": ["frame1.png", "frame2.png", "frame3.png"], "animation_speed": 0.1, "tint": [255, 255, 255] }
+{
+    "collider": "Wall",
+    "type": "TextureSingle",
+    "frame": "texture.png",
+    "color": [255, 255, 255, 255],
+    "unlit": false
+}
 ```
 
-- `tint` is optional and defaults to white `[255, 255, 255]`.
-- `tint` applies to the material texture color.
-- If a material has a texture in `level.material`, the model renders with that texture.
-- If no texture is provided for a material, the face renders white.
-- Final surface color is multiplied by the lightmap (if present).
+Animated texture:
+
+```json
+{
+    "collider": "Null",
+    "type": "TextureMulti",
+    "frames": ["frame1.png", "frame2.png", "frame3.png"],
+    "animation_speed": 0.1,
+    "color": [255, 255, 255, 255],
+    "unlit": false
+}
+```
+
+Flat color:
+
+```json
+{
+    "collider": "Ladder",
+    "type": "Untextured",
+    "color": [64, 200, 255, 255],
+    "unlit": false
+}
+```
+
+Invisible:
+
+```json
+{
+    "collider": "Wall",
+    "type": "Invisible"
+}
+```
+
+Per-type field rules:
+
+- `TextureSingle`: required `frame`; optional `collider`, `color`, `unlit`.
+- `TextureMulti`: required `frames` (must be non-empty) and `animation_speed`; optional `collider`, `color`, `unlit`.
+- `Untextured`: required `color`; optional `collider`, `unlit`.
+- `Invisible`: optional `collider` only.
+
+Defaults and behavior:
+
+- `collider` defaults to `Wall` when omitted.
+- `color` defaults to white for `TextureSingle`/`TextureMulti`.
+- `unlit` defaults to `false` when omitted.
+- If `unlit` is `true`, the surface is not multiplied by the level lightmap.
+- If `unlit` is `false`, final color is multiplied by the lightmap when a lightmap is present.
+
+### Material Mapping
+
+- `level.surface` keys should match material names in the level `.glb`.
+- If a mesh material has no matching surface entry, that geometry is skipped for rendering and level collision.
 
 ### Texture Constraints
 

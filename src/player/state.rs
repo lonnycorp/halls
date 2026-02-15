@@ -1,13 +1,16 @@
 use glam::{Vec2, Vec3};
-use parry3d::math::Vector;
 use parry3d::shape::Cuboid;
 use url::Url;
 
-pub const WIDTH: f32 = 0.6;
-pub const HEIGHT: f32 = 1.4;
-pub const CROUCH_HEIGHT: f32 = 0.7;
+#[derive(Clone, Copy, PartialEq)]
+pub enum PlayerMovementMode {
+    Grounded,
+    Airborne,
+    Ladder { normal: Vec3 },
+}
 
 pub struct PlayerState {
+    pub prev_position: Vec3,
     pub position: Vec3,
     pub rotation: Vec2,
     pub velocity: Vec3,
@@ -19,24 +22,6 @@ pub struct PlayerState {
     pub wish_jumping: bool,
     pub wish_crouching: bool,
     pub crouching: bool,
-    pub grounded: bool,
-}
-
-impl PlayerState {
-    pub fn new(position: Vec3) -> Self {
-        return Self {
-            position,
-            rotation: Vec2::ZERO,
-            velocity: Vec3::ZERO,
-            collider: Cuboid::new(Vector::new(WIDTH / 2.0, HEIGHT / 2.0, WIDTH / 2.0)),
-            level_url: None,
-            last_portal: None,
-            open_factor: 0.0,
-            wish_direction: Vec3::ZERO,
-            wish_jumping: false,
-            wish_crouching: false,
-            crouching: false,
-            grounded: false,
-        };
-    }
+    pub prev_movement_mode: PlayerMovementMode,
+    pub movement_mode: PlayerMovementMode,
 }

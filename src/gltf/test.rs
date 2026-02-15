@@ -1,12 +1,10 @@
 use super::*;
-use crate::graphics::color::Color;
-
-const WHITE: Color = Color::WHITE;
+use crate::color::Color;
 
 #[test]
 fn test_invalid_data_returns_load_error() {
     let result = GLTFMesh::from_bytes(&[]);
-    assert!(matches!(result, Err(GLTFMeshError::Load)));
+    assert!(matches!(result, Err(GLTFMeshError::GLTF)));
 }
 
 #[test]
@@ -50,7 +48,7 @@ fn test_vertex_with_color_returns_some() {
 }
 
 #[test]
-fn test_vertex_default_model_color_is_white() {
+fn test_vertex_default_material_ix_is_zero() {
     let mesh = GLTFMesh::new(
         vec![
             0.0, 0.0, 0.0, //
@@ -63,11 +61,8 @@ fn test_vertex_default_model_color_is_white() {
         None,
     );
 
-    let vertex = mesh.vertex(0);
-    let mut buffer = crate::graphics::model::ModelBuffer::new();
-    vertex.write_to_model_buffer(&mut buffer);
-
-    assert_eq!(buffer.vertices()[0].color, WHITE);
+    let vertex = mesh.vertex(0).to_model_vertex();
+    assert_eq!(vertex.material_ix, 0);
 }
 
 #[test]

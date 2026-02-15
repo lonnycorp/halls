@@ -2,28 +2,53 @@
 
 ## Philosophy
 
-- Keep code minimal; don't add features, flags, or abstractions unless explicitly asked
-- Err on the side of creating a plan before implementing
-- Avoid defensive code; don't add conditionals or checks "just in case"
-- Let errors panic and fail rather than handling hypothetical upstream issues
-- Don't proactively create helper methods; prefer inline code unless a code path is used multiple times
-- Only extract helpers when there is explicit, demonstrated reuse - not "just in case"
+- Keep code minimal; do not add features, flags, or abstractions unless asked.
+- Avoid defensive code and "just in case" checks.
+- Let errors bubble up unless there is a clear reason to handle them.
 
-## Working Method
+## Layout
 
-- Always default to planning; only write code after the user is happy and has explicitly signed off.
+- `mod.rs` files contain declarations and re-exports only.
+- Do not put logic or implementations in `mod.rs`.
+- Prefer module boundaries via `mod.rs`; inside module trees, use `pub` over `pub(super)`.
+- For large split features, define one shared parent `state.rs` struct (`*State`).
+- Keep shared cross-cutting data in that state; keep sub-module-specific data local.
+- Sub-modules use shared state via `&FooState` / `&mut FooState`.
+- Use singular file names.
+- Tests live in separate modules (`foo/test.rs`), never inline `#[cfg(test)]`.
+- Within a file, put dependencies before dependents.
+- Define types/errors/helpers before public functions that use them.
+- Only extract helper methods when reused.
 
-## Code Style
+## Naming
 
-- `mod.rs` files should only contain module declarations and re-exports
-- Do not put logic or implementations in `mod.rs`
-- Use singular names for files (e.g., `macro.rs` not `macros.rs`)
-- Prefer to use explicit `return` keywords wherever possible
-- Tests must be in separate test modules, never inline
-- Use `foo/test.rs` alongside `foo/bar.rs`, not `#[cfg(test)]` blocks within implementation files
-- Only use functional combinators for pure transformations; if the body has side effects or mutates external state, use loops instead
-- Prefer named constants at the top of the file over magic numbers inline
-- No single-line `if` bodies; always use braces on the next line
-- Prefer information hiding: keep fields private by default, use read-only accessors across module boundaries, and only expose mutation when explicitly needed.
-- Use `cargo fmt` to ensure code is correctly formatted
-- Use `cargo clippy` to ensure we don't introduce *unexpected* warnings
+- Unless a module is purely organizational, namespace public APIs by parent module (`foo/bar` -> `FooBar`).
+- Shared module state structs must be suffixed with `State`.
+- If a function takes too many arguments, group them into one `Params`-suffixed struct.
+- Avoid generic names like `State` for shared/public types.
+- Prefer object-verb function names (`foo_get` over `get_foo`).
+- For noun/adjective-only names, use broader-to-narrower order (`context_item`).
+- In PascalCase, keep acronyms fully capitalized (`URLParse`, `GLTFMesh`).
+- For concise read-only accessors, `_get` may be implied by context (`foo()` over `foo_get()`).
+- For `Result` returns, define `{Type}{Method}Error`.
+
+## Visibility
+
+- Prefer information hiding at externally visible module boundaries.
+- Default to private fields with read-only accessors.
+- Use `pub` fields only for data structs where direct mutation is expected.
+- If unsure, keep fields private and expose the smallest surface needed.
+
+## Aesthetics
+
+- Prefer explicit `return` where possible.
+- Use functional combinators only for pure transformations.
+- If code has side effects or external mutation, use explicit loops/match blocks.
+- Avoid side effects in expression-style assignments.
+- Prefer named constants over inline magic numbers.
+- No single-line `if` bodies; always use braces on the next line.
+
+## Validation
+
+- Run `cargo fmt`.
+- Run `cargo clippy`; avoid unexpected warnings.

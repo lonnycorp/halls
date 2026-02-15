@@ -1,4 +1,4 @@
-pub fn bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+pub fn render_target_bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     return wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::FRAGMENT,

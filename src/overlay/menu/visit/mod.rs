@@ -1,4 +1,4 @@
 mod item;
 mod visit;
 
-pub use visit::{MenuVisit, MenuVisitUpdateContext};
+pub use visit::{MenuVisit, MenuVisitUpdateParams};

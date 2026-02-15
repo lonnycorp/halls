@@ -1,37 +1,60 @@
 use glam::Vec2;
 
-use crate::graphics::color::Color;
-use crate::graphics::model::ModelBuffer;
+use crate::graphics::sprite::SpriteVertex;
 
 use super::text::{SpriteText, TEXT_SIZE};
+use super::TextColor;
+
+#[derive(Clone, Copy)]
+pub enum SpriteLabelAlignment {
+    Left,
+    Right,
+}
 
 pub struct SpriteLabel<'a> {
-    pub position: Vec2,
-    pub max_len: usize,
-    pub color: Color,
-    pub bold: bool,
-    pub text: &'a str,
+    position: Vec2,
+    max_len: usize,
+    color: TextColor,
+    bold: bool,
+    alignment: SpriteLabelAlignment,
+    text: &'a str,
 }
 
 impl<'a> SpriteLabel<'a> {
-    pub fn new(position: Vec2, max_len: usize, color: Color, bold: bool, text: &'a str) -> Self {
+    pub fn new(
+        position: Vec2,
+        max_len: usize,
+        color: TextColor,
+        bold: bool,
+        alignment: SpriteLabelAlignment,
+        text: &'a str,
+    ) -> Self {
         return Self {
             position,
             max_len,
             color,
             bold,
+            alignment,
             text,
         };
     }
 
-    pub fn write_to_model_buffer(&self, buffer: &mut ModelBuffer, resolution: Vec2) {
+    pub fn vertices(&self) -> impl Iterator<Item = SpriteVertex> + 'a {
         let len = self.text.len().min(self.max_len);
         let visible = &self.text[..len];
-
-        for (i, c) in visible.chars().enumerate() {
-            let position = Vec2::new(self.position.x + i as f32 * TEXT_SIZE.x, self.position.y);
-            SpriteText::new(c, self.bold, position, self.color)
-                .write_to_model_buffer(buffer, resolution);
-        }
+        let position = self.position;
+        let visible_len = visible.chars().count();
+        let bold = self.bold;
+        let color = self.color;
+        let start_x = match self.alignment {
+            SpriteLabelAlignment::Left => position.x,
+            SpriteLabelAlignment::Right => {
+                position.x + (self.max_len - visible_len) as f32 * TEXT_SIZE.x
+            }
+        };
+        return visible.chars().enumerate().flat_map(move |(i, c)| {
+            let char_position = Vec2::new(start_x + i as f32 * TEXT_SIZE.x, position.y);
+            return SpriteText::new(c, bold, char_position, color).vertices();
+        });
     }
 }

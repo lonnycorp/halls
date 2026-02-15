@@ -1,16 +1,16 @@
 use glam::Vec2;
 use url::Url;
-use winit::keyboard::KeyCode;
+use winit::keyboard::{Key, NamedKey};
 
+use super::key::MenuSettingsKeyCache;
 use super::settings::MenuSettingsState;
-use crate::audio::Effect;
+use crate::audio::Track;
 use crate::config::{Config, ConfigControl};
-use crate::graphics::color::Color;
-use crate::graphics::model::ModelBuffer;
 use crate::graphics::sprite::{
-    OptionState, SpriteText, SpriteTextInput, SpriteTextOption, TEXT_SIZE,
+    OptionState, SpriteLabel, SpriteLabelAlignment, SpriteText, SpriteTextInput, SpriteTextOption,
+    SpriteVertex, TextColor, TEXT_SIZE,
 };
-use crate::window::{InputController, KeyState};
+use crate::window::{WindowContext, WindowKeyState};
 use crate::{Status, StatusBuffer};
 
 pub const MAX_ITEM_NAME_LEN: usize = 14;
@@ -18,6 +18,19 @@ pub const MAX_ITEM_VALUE_LEN: usize = 48;
 
 const ADJUST_STEP: f32 = 0.1;
 const ITEM_INDENT: f32 = TEXT_SIZE.x + 2.0;
+
+pub struct MenuSettingsItemOnSelectParams<'a> {
+    pub state: &'a mut MenuSettingsState,
+    pub config: &'a mut Config,
+    pub status: &'a mut StatusBuffer,
+    pub select_track: &'a Track,
+}
+
+pub struct MenuSettingsItemUpdateParams<'a> {
+    pub state: &'a mut MenuSettingsState,
+    pub window: &'a WindowContext<'a>,
+    pub move_track: &'a Track,
+}
 
 #[derive(strum::EnumIter, strum::EnumCount)]
 pub enum MenuSettingsItem {
@@ -34,8 +47,55 @@ pub enum MenuSettingsItem {
     GoBack,
 }
 
+fn slider_adjust(value: &mut f32, window: &WindowContext<'_>, move_track: &Track) {
+    let mut next = *value;
+
+    if let WindowKeyState::Pressed = window.key(&Key::Named(NamedKey::ArrowLeft)) {
+        next = (next - ADJUST_STEP).clamp(0.0, 1.0);
+        move_track.reset();
+        move_track.play();
+    }
+    if let WindowKeyState::Pressed = window.key(&Key::Named(NamedKey::ArrowRight)) {
+        next = (next + ADJUST_STEP).clamp(0.0, 1.0);
+        move_track.reset();
+        move_track.play();
+    }
+
+    *value = next;
+}
+
+fn pct_vertices(
+    position: Vec2,
+    value: f32,
+    color: TextColor,
+) -> impl Iterator<Item = SpriteVertex> {
+    let pct = format!("{}%", (value * 100.0).round() as u32);
+    let width = pct.len() as f32 * TEXT_SIZE.x;
+    let x = position.x + MAX_ITEM_VALUE_LEN as f32 * TEXT_SIZE.x - width;
+    return pct
+        .into_bytes()
+        .into_iter()
+        .enumerate()
+        .flat_map(move |(j, byte)| {
+            let pos = Vec2::new(x + j as f32 * TEXT_SIZE.x, position.y);
+            return SpriteText::new(char::from(byte), false, pos, color).vertices();
+        });
+}
+
 impl MenuSettingsItem {
-    pub fn name(&self) -> &str {
+    fn control(&self) -> Option<ConfigControl> {
+        return match self {
+            MenuSettingsItem::Forward => Some(ConfigControl::Forward),
+            MenuSettingsItem::Back => Some(ConfigControl::Back),
+            MenuSettingsItem::StrafeLeft => Some(ConfigControl::StrafeLeft),
+            MenuSettingsItem::StrafeRight => Some(ConfigControl::StrafeRight),
+            MenuSettingsItem::Jump => Some(ConfigControl::Jump),
+            MenuSettingsItem::Crouch => Some(ConfigControl::Crouch),
+            _ => None,
+        };
+    }
+
+    pub fn name(&self) -> &'static str {
         return match self {
             MenuSettingsItem::Volume => "VOLUME",
             MenuSettingsItem::MouseSensitivity => "MOUSE SENS",
@@ -51,59 +111,57 @@ impl MenuSettingsItem {
         };
     }
 
-    pub fn on_select(
-        &self,
-        state: &mut MenuSettingsState,
-        config: &mut Config,
-        status: &mut StatusBuffer,
-    ) {
+    pub fn on_select(&self, params: &mut MenuSettingsItemOnSelectParams<'_>) {
+        params.select_track.reset();
+        params.select_track.play();
+
         match self {
             MenuSettingsItem::Save => {
-                if Url::parse(&state.default_url).is_ok() {
-                    state.buffered_state.default_url = Url::parse(&state.default_url).unwrap();
-                    *config = state.buffered_state.clone();
-                    config.save();
-                    state.clear(config);
-                    status.set(Status::MenuHome);
+                if Url::parse(&params.state.default_url).is_ok() {
+                    params.state.buffered_config.default_url =
+                        Url::parse(&params.state.default_url).unwrap();
+                    *params.config = params.state.buffered_config.clone();
+                    params.config.save();
+                    params.state.clear(params.config);
+                    params.status.set(Status::MenuHome);
                 }
             }
             MenuSettingsItem::GoBack => {
-                state.clear(config);
-                status.set(Status::MenuHome);
+                params.state.clear(params.config);
+                params.status.set(Status::MenuHome);
             }
             _ => {
-                state.selected = true;
+                params.state.selected = true;
             }
         }
     }
 
-    pub fn update(
-        &self,
-        state: &mut MenuSettingsState,
-        input: &InputController<'_>,
-        move_effect: &Effect,
-    ) {
-        if let KeyState::Pressed = input.key(KeyCode::Escape) {
-            state.selected = false;
-            move_effect.reset();
-            move_effect.play();
+    pub fn update(&self, params: &mut MenuSettingsItemUpdateParams<'_>) {
+        if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Escape)) {
+            params.state.selected = false;
+            params.move_track.reset();
+            params.move_track.play();
             return;
         }
-        if let KeyState::Pressed = input.key(KeyCode::Enter) {
-            state.selected = false;
-            move_effect.reset();
-            move_effect.play();
+        if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Enter)) {
+            params.state.selected = false;
+            params.move_track.reset();
+            params.move_track.play();
             return;
         }
         match self {
             MenuSettingsItem::Volume => {
-                adjust_slider(&mut state.buffered_state.volume, input, move_effect);
+                slider_adjust(
+                    &mut params.state.buffered_config.volume,
+                    params.window,
+                    params.move_track,
+                );
             }
             MenuSettingsItem::MouseSensitivity => {
-                adjust_slider(
-                    &mut state.buffered_state.mouse_sensitivity,
-                    input,
-                    move_effect,
+                slider_adjust(
+                    &mut params.state.buffered_config.mouse_sensitivity,
+                    params.window,
+                    params.move_track,
                 );
             }
             MenuSettingsItem::Forward
@@ -112,148 +170,105 @@ impl MenuSettingsItem {
             | MenuSettingsItem::StrafeRight
             | MenuSettingsItem::Jump
             | MenuSettingsItem::Crouch => {
-                let control = self.as_control();
-                if let Some(key) = input.last_pressed() {
-                    state.buffered_state.keycode_set(control, key);
-                    state.selected = false;
-                    move_effect.reset();
-                    move_effect.play();
+                let control = self.control().unwrap();
+                if let Some(key) = params.window.last_pressed() {
+                    params.state.buffered_config.key_set(control, key);
+                    params.state.selected = false;
+                    params.move_track.reset();
+                    params.move_track.play();
                 }
             }
             MenuSettingsItem::DefaultUrl => {
-                if let KeyState::Pressed = input.key(KeyCode::Backspace) {
-                    state.default_url.pop();
+                if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Backspace))
+                {
+                    params.state.default_url.pop();
                 }
-                state.default_url.push_str(input.typed_chars());
+                params
+                    .state
+                    .default_url
+                    .push_str(params.window.typed_chars());
             }
             MenuSettingsItem::Save | MenuSettingsItem::GoBack => {}
         }
     }
 
-    pub fn write_to_model_buffer(
+    pub fn vertices<'a>(
         &self,
-        state: &MenuSettingsState,
-        buffer: &mut ModelBuffer,
-        resolution: Vec2,
+        state: &'a MenuSettingsState,
+        key_cache: &'a mut MenuSettingsKeyCache,
         position: Vec2,
         hovered: bool,
         active: bool,
-    ) {
-        let option_state = match self {
-            MenuSettingsItem::Save => {
-                if Url::parse(&state.default_url).is_err() {
-                    OptionState::Disabled
-                } else if active {
-                    OptionState::Selected
-                } else {
-                    OptionState::Unselected
-                }
-            }
-            _ => {
-                if active {
-                    OptionState::Selected
-                } else {
-                    OptionState::Unselected
-                }
-            }
-        };
+    ) -> impl Iterator<Item = SpriteVertex> + 'a {
+        let option_state =
+            if matches!(self, MenuSettingsItem::Save) && Url::parse(&state.default_url).is_err() {
+                OptionState::Disabled
+            } else if active {
+                OptionState::Selected
+            } else {
+                OptionState::Unselected
+            };
 
-        SpriteTextOption::new(
+        let option = SpriteTextOption::new(
             position,
             MAX_ITEM_NAME_LEN,
             hovered,
             option_state,
             self.name(),
-        )
-        .write_to_model_buffer(buffer, resolution);
+        );
 
         let value_x = position.x + ITEM_INDENT + MAX_ITEM_NAME_LEN as f32 * TEXT_SIZE.x;
+        let value_y = position.y;
 
-        match self {
-            MenuSettingsItem::Volume => {
-                draw_pct(
-                    buffer,
-                    resolution,
-                    Vec2::new(value_x, position.y),
-                    state.buffered_state.volume,
-                    Color::WHITE,
-                );
-            }
-            MenuSettingsItem::MouseSensitivity => {
-                draw_pct(
-                    buffer,
-                    resolution,
-                    Vec2::new(value_x, position.y),
-                    state.buffered_state.mouse_sensitivity,
-                    Color::WHITE,
-                );
-            }
+        let pct_value = match self {
+            MenuSettingsItem::Volume => Some(state.buffered_config.volume),
+            MenuSettingsItem::MouseSensitivity => Some(state.buffered_config.mouse_sensitivity),
+            _ => None,
+        };
+        let pct_value_vertices = pct_value.into_iter().flat_map(move |value| {
+            return pct_vertices(Vec2::new(value_x, value_y), value, TextColor::White);
+        });
+
+        let key_name = match self {
             MenuSettingsItem::Forward
             | MenuSettingsItem::Back
             | MenuSettingsItem::StrafeLeft
             | MenuSettingsItem::StrafeRight
             | MenuSettingsItem::Jump
             | MenuSettingsItem::Crouch => {
-                let control = self.as_control();
-                let key = state.buffered_state.keycode_get(control);
-                let name = format!("{:?}", key);
-                let x = value_x + MAX_ITEM_VALUE_LEN as f32 * TEXT_SIZE.x
-                    - name.len() as f32 * TEXT_SIZE.x;
-                for (j, c) in name.chars().enumerate() {
-                    let pos = Vec2::new(x + j as f32 * TEXT_SIZE.x, position.y);
-                    SpriteText::new(c, false, pos, Color::WHITE)
-                        .write_to_model_buffer(buffer, resolution);
-                }
+                let control = self.control().unwrap();
+                Some(key_cache.name(state.buffered_config.key_get(control)))
             }
-            MenuSettingsItem::DefaultUrl => {
-                SpriteTextInput::new(
-                    Vec2::new(value_x, position.y),
-                    MAX_ITEM_VALUE_LEN,
-                    &state.default_url,
-                    active,
-                    state.tick,
-                )
-                .write_to_model_buffer(buffer, resolution);
-            }
-            MenuSettingsItem::Save | MenuSettingsItem::GoBack => {}
-        }
-    }
-
-    fn as_control(&self) -> ConfigControl {
-        return match self {
-            MenuSettingsItem::Forward => ConfigControl::Forward,
-            MenuSettingsItem::Back => ConfigControl::Back,
-            MenuSettingsItem::StrafeLeft => ConfigControl::StrafeLeft,
-            MenuSettingsItem::StrafeRight => ConfigControl::StrafeRight,
-            MenuSettingsItem::Jump => ConfigControl::Jump,
-            MenuSettingsItem::Crouch => ConfigControl::Crouch,
-            _ => unreachable!(),
+            _ => None,
         };
-    }
-}
+        let key_vertices = key_name.into_iter().flat_map(move |name| {
+            let position = Vec2::new(value_x, value_y);
+            return SpriteLabel::new(
+                position,
+                MAX_ITEM_VALUE_LEN,
+                TextColor::White,
+                false,
+                SpriteLabelAlignment::Right,
+                name,
+            )
+            .vertices();
+        });
 
-fn adjust_slider(value: &mut f32, input: &InputController<'_>, move_effect: &Effect) {
-    let mut next = *value;
+        let input = matches!(self, MenuSettingsItem::DefaultUrl).then_some(SpriteTextInput::new(
+            Vec2::new(value_x, value_y),
+            MAX_ITEM_VALUE_LEN,
+            &state.default_url,
+            active,
+            state.tick,
+        ));
+        let input_vertices = input.into_iter().flat_map(move |input| {
+            return input.vertices();
+        });
 
-    if let KeyState::Pressed = input.key(KeyCode::ArrowLeft) {
-        next = (next - ADJUST_STEP).clamp(0.0, 1.0);
-        move_effect.reset();
-        move_effect.play();
-    }
-    if let KeyState::Pressed = input.key(KeyCode::ArrowRight) {
-        next = (next + ADJUST_STEP).clamp(0.0, 1.0);
-        move_effect.reset();
-        move_effect.play();
-    }
-
-    *value = next;
-}
-
-fn draw_pct(buffer: &mut ModelBuffer, resolution: Vec2, position: Vec2, value: f32, color: Color) {
-    let pct = format!("{}%", (value * 100.0).round() as u32);
-    let x = position.x + MAX_ITEM_VALUE_LEN as f32 * TEXT_SIZE.x - pct.len() as f32 * TEXT_SIZE.x;
-    for (j, c) in pct.chars().enumerate() {
-        let pos = Vec2::new(x + j as f32 * TEXT_SIZE.x, position.y);
-        SpriteText::new(c, false, pos, color).write_to_model_buffer(buffer, resolution);
+        return option
+            .vertices()
+            .chain(pct_value_vertices)
+            .chain(key_vertices)
+            .chain(input_vertices);
     }
 }

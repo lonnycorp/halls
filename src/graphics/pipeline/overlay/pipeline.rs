@@ -1,10 +1,10 @@
-use crate::graphics::model::layout;
+use crate::graphics::model::model_layout;
 
-use super::bind_group::create_bind_group_layout_texture;
+use super::bind_group::{config_bind_group_layout_create, texture_bind_group_layout_create};
 
 const SHADER_PATH: &str = "shader/overlay.wgsl";
 
-pub fn create_pipeline_overlay(
+pub fn pipeline_overlay_create(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
@@ -17,11 +17,12 @@ pub fn create_pipeline_overlay(
         ),
     });
 
-    let texture_layout = create_bind_group_layout_texture(device);
+    let texture_layout = texture_bind_group_layout_create(device);
+    let config_layout = config_bind_group_layout_create(device);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Overlay Pipeline Layout"),
-        bind_group_layouts: &[&texture_layout],
+        bind_group_layouts: &[&texture_layout, &config_layout],
         push_constant_ranges: &[],
     });
 
@@ -31,7 +32,7 @@ pub fn create_pipeline_overlay(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[layout()],
+            buffers: &[model_layout()],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {

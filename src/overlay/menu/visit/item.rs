@@ -1,19 +1,37 @@
 use glam::Vec2;
 use url::Url;
-use winit::keyboard::KeyCode;
+use winit::keyboard::{Key, NamedKey};
 
-use crate::graphics::model::ModelBuffer;
-use crate::graphics::sprite::{OptionState, SpriteTextInput, SpriteTextOption, TEXT_SIZE};
+use crate::audio::Track;
+use crate::graphics::sprite::{
+    OptionState, SpriteTextInput, SpriteTextOption, SpriteVertex, TEXT_SIZE,
+};
+use crate::level::cache::LevelCache;
 use crate::level::cache::LevelCacheResult;
-use crate::window::KeyState;
+use crate::player::Player;
+use crate::window::{WindowContext, WindowKeyState};
 use crate::{Status, StatusBuffer};
 
-use super::visit::{MenuVisitState, MenuVisitUpdateContext};
+use super::visit::MenuVisitState;
 
 const ITEM_INDENT: f32 = TEXT_SIZE.x + 2.0;
 
 pub const MAX_ITEM_NAME_LEN: usize = 14;
 pub const MAX_ITEM_VALUE_LEN: usize = 48;
+
+pub struct MenuVisitItemOnSelectParams<'a> {
+    pub state: &'a mut MenuVisitState,
+    pub status: &'a mut StatusBuffer,
+}
+
+pub struct MenuVisitItemUpdateParams<'a> {
+    pub state: &'a mut MenuVisitState,
+    pub window: &'a WindowContext<'a>,
+    pub status: &'a mut StatusBuffer,
+    pub player: &'a mut Player,
+    pub cache: &'a mut LevelCache,
+    pub move_track: &'a Track,
+}
 
 #[derive(strum::EnumIter, strum::EnumCount)]
 pub enum MenuVisitItem {
@@ -31,86 +49,85 @@ impl MenuVisitItem {
         };
     }
 
-    pub fn on_select(&self, state: &mut MenuVisitState, status: &mut StatusBuffer) {
+    pub fn on_select(&self, params: &mut MenuVisitItemOnSelectParams<'_>) {
         match self {
             MenuVisitItem::LevelUrl => {
-                state.selected = true;
+                params.state.selected = true;
             }
             MenuVisitItem::Visit => {
-                if let Ok(url) = Url::parse(&state.level_url) {
-                    state.visiting = Some(url);
-                    state.selected = true;
+                if let Ok(url) = Url::parse(&params.state.level_url) {
+                    params.state.visiting = Some(url);
+                    params.state.selected = true;
                 }
             }
             MenuVisitItem::GoBack => {
-                state.clear();
-                status.set(Status::MenuHome);
+                params.state.clear();
+                params.status.set(Status::MenuHome);
             }
         }
     }
 
-    pub fn update(&self, state: &mut MenuVisitState, ctx: &mut MenuVisitUpdateContext) {
+    pub fn update(&self, params: &mut MenuVisitItemUpdateParams<'_>) {
         if let MenuVisitItem::Visit = self {
-            if let Some(ref visiting_url) = state.visiting {
-                if let KeyState::Pressed = ctx.input.key(KeyCode::Escape) {
-                    state.visiting = None;
-                    state.selected = false;
-                    state.status_message = None;
-                    ctx.move_effect.reset();
-                    ctx.move_effect.play();
+            if let Some(ref visiting_url) = params.state.visiting {
+                if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Escape)) {
+                    params.state.visiting = None;
+                    params.state.selected = false;
+                    params.state.status_message = None;
+                    params.move_track.reset();
+                    params.move_track.play();
                     return;
                 }
-                match ctx.cache.get(visiting_url) {
+                match params.cache.get(visiting_url) {
                     LevelCacheResult::Loading => {
-                        state.status_message = Some("Loading...".to_string());
+                        params.state.status_message = Some("Loading...".to_string());
                     }
                     LevelCacheResult::Ready(level) => {
-                        ctx.player.set_position(level.spawn_position());
-                        ctx.player.set_level_url(visiting_url.clone());
-                        state.clear();
-                        ctx.status.set(Status::Simulation);
+                        params.player.set_position(level.spawn_position());
+                        params.player.set_level_url(visiting_url.clone());
+                        params.state.clear();
+                        params.status.set(Status::Simulation);
                     }
                     LevelCacheResult::Failed(err) => {
-                        state.status_message = Some(err.to_string());
+                        params.state.status_message = Some(err.to_string());
                     }
                 }
             } else {
-                state.selected = false;
+                params.state.selected = false;
             }
             return;
         }
-        if let KeyState::Pressed = ctx.input.key(KeyCode::Escape) {
-            state.selected = false;
-            ctx.move_effect.reset();
-            ctx.move_effect.play();
+        if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Escape)) {
+            params.state.selected = false;
+            params.move_track.reset();
+            params.move_track.play();
             return;
         }
-        if let KeyState::Pressed = ctx.input.key(KeyCode::Enter) {
-            state.selected = false;
-            ctx.move_effect.reset();
-            ctx.move_effect.play();
+        if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Enter)) {
+            params.state.selected = false;
+            params.move_track.reset();
+            params.move_track.play();
             return;
         }
         match self {
             MenuVisitItem::LevelUrl => {
-                if let KeyState::Pressed = ctx.input.key(KeyCode::Backspace) {
-                    state.level_url.pop();
+                if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Backspace))
+                {
+                    params.state.level_url.pop();
                 }
-                state.level_url.push_str(ctx.input.typed_chars());
+                params.state.level_url.push_str(params.window.typed_chars());
             }
             MenuVisitItem::Visit | MenuVisitItem::GoBack => {}
         }
     }
 
-    pub fn write_to_model_buffer(
-        &self,
-        state: &MenuVisitState,
-        buffer: &mut ModelBuffer,
-        resolution: Vec2,
+    pub fn vertices<'a>(
+        &'a self,
+        state: &'a MenuVisitState,
         position: Vec2,
         hovered: bool,
         active: bool,
-    ) {
+    ) -> impl Iterator<Item = SpriteVertex> + 'a {
         let option_state = match self {
             MenuVisitItem::Visit => {
                 if Url::parse(&state.level_url).is_err() {
@@ -130,28 +147,28 @@ impl MenuVisitItem {
             }
         };
 
-        SpriteTextOption::new(
+        let option = SpriteTextOption::new(
             position,
             MAX_ITEM_NAME_LEN,
             hovered,
             option_state,
             self.name(),
-        )
-        .write_to_model_buffer(buffer, resolution);
+        );
 
-        match self {
-            MenuVisitItem::LevelUrl => {
-                let value_x = position.x + ITEM_INDENT + MAX_ITEM_NAME_LEN as f32 * TEXT_SIZE.x;
-                SpriteTextInput::new(
-                    Vec2::new(value_x, position.y),
-                    MAX_ITEM_VALUE_LEN,
-                    &state.level_url,
-                    active,
-                    state.tick,
-                )
-                .write_to_model_buffer(buffer, resolution);
-            }
-            MenuVisitItem::Visit | MenuVisitItem::GoBack => {}
-        }
+        let input = matches!(self, MenuVisitItem::LevelUrl).then_some(SpriteTextInput::new(
+            Vec2::new(
+                position.x + ITEM_INDENT + MAX_ITEM_NAME_LEN as f32 * TEXT_SIZE.x,
+                position.y,
+            ),
+            MAX_ITEM_VALUE_LEN,
+            &state.level_url,
+            active,
+            state.tick,
+        ));
+        let input_vertices = input.into_iter().flat_map(move |input| {
+            return input.vertices();
+        });
+
+        return option.vertices().chain(input_vertices);
     }
 }

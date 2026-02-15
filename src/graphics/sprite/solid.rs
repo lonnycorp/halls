@@ -1,37 +1,34 @@
 use glam::Vec2;
 
-use super::Sprite;
-use crate::graphics::color::Color;
-use crate::graphics::model::ModelBuffer;
-use crate::SYSTEM_TEXTURE_INDEX;
+use super::{Sprite, SpriteVertex};
+use crate::graphics::sprite::SpriteMaterial;
 
 const UV_POSITION: Vec2 = Vec2::new(32.0, 0.0);
 const UV_SIZE: Vec2 = Vec2::splat(16.0);
 
 pub struct SpriteSolid {
-    pub position: Vec2,
-    pub size: Vec2,
-    pub color: Color,
+    position: Vec2,
+    size: Vec2,
+    material: SpriteMaterial,
 }
 
 impl SpriteSolid {
-    pub fn new(position: Vec2, size: Vec2, color: Color) -> Self {
+    pub fn new(position: Vec2, size: Vec2, material: SpriteMaterial) -> Self {
         return Self {
             position,
             size,
-            color,
+            material,
         };
     }
 
-    pub fn write_to_model_buffer(&self, buffer: &mut ModelBuffer, resolution: Vec2) {
-        Sprite {
-            uv_position: UV_POSITION,
-            uv_size: UV_SIZE,
-            texture_ix: SYSTEM_TEXTURE_INDEX as u32,
-            position: self.position,
-            size: self.size,
-            color: self.color,
-        }
-        .write_to_model_buffer(buffer, resolution);
+    pub fn vertices(&self) -> impl Iterator<Item = SpriteVertex> {
+        return Sprite::new(
+            UV_POSITION,
+            UV_SIZE,
+            self.material,
+            self.position,
+            self.size,
+        )
+        .vertices();
     }
 }

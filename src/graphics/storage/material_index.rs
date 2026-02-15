@@ -3,13 +3,22 @@ use std::num::NonZeroU64;
 
 use bytemuck::{Pod, Zeroable};
 
+use crate::color::Color;
+
 pub const MAX_MATERIAL_ID: usize = 0x1FF;
 const MAX_FRAMES: usize = 0x1000;
 
 #[derive(Debug, Clone, Copy)]
-pub enum MaterialIndexWriteError {
+pub enum MaterialIndexStorageBufferDataWriteError {
     TooManyMaterials,
     TooManyFrames,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct MaterialTextureRef {
+    pub bucket: u16,
+    pub layer: u16,
 }
 
 #[repr(C)]
@@ -18,6 +27,8 @@ pub struct MaterialEntry {
     num_frames: u32,
     speed: f32,
     offset: u32,
+    color: Color,
+    unlit: u32,
 }
 
 #[repr(C)]
@@ -35,26 +46,32 @@ impl MaterialIndexStorageBufferData {
 
     pub fn write(
         &mut self,
-        material_id: usize,
+        material_ix: u32,
         speed: f32,
-        texture_ids: &[u32],
-    ) -> Result<(), MaterialIndexWriteError> {
+        texture_refs: &[MaterialTextureRef],
+        color: Color,
+        unlit: bool,
+    ) -> Result<(), MaterialIndexStorageBufferDataWriteError> {
+        let material_id = material_ix as usize;
+
         if material_id > MAX_MATERIAL_ID {
-            return Err(MaterialIndexWriteError::TooManyMaterials);
+            return Err(MaterialIndexStorageBufferDataWriteError::TooManyMaterials);
         }
-        if self.next_free_frame as usize + texture_ids.len() > MAX_FRAMES {
-            return Err(MaterialIndexWriteError::TooManyFrames);
+        if self.next_free_frame as usize + texture_refs.len() > MAX_FRAMES {
+            return Err(MaterialIndexStorageBufferDataWriteError::TooManyFrames);
         }
         let offset = self.next_free_frame;
         self.entries[material_id] = MaterialEntry {
-            num_frames: texture_ids.len() as u32,
+            num_frames: texture_refs.len() as u32,
             speed,
             offset,
+            color,
+            unlit: u32::from(unlit),
         };
-        for (i, &tid) in texture_ids.iter().enumerate() {
-            self.frames[offset as usize + i] = tid;
+        for (i, &texture_ref) in texture_refs.iter().enumerate() {
+            self.frames[offset as usize + i] = bytemuck::cast(texture_ref);
         }
-        self.next_free_frame += texture_ids.len() as u32;
+        self.next_free_frame += texture_refs.len() as u32;
         return Ok(());
     }
 }

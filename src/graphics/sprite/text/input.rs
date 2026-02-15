@@ -1,19 +1,19 @@
 use glam::Vec2;
 
-use crate::graphics::color::Color;
-use crate::graphics::model::ModelBuffer;
+use crate::graphics::sprite::SpriteVertex;
 
 use super::text::{SpriteText, TEXT_SIZE};
+use super::TextColor;
 
-const COLOR: Color = Color::WHITE;
+const TEXT_COLOR: TextColor = TextColor::White;
 const BLINK_PERIOD: u32 = 30;
 
 pub struct SpriteTextInput<'a> {
-    pub position: Vec2,
-    pub max_len: usize,
-    pub text: &'a str,
-    pub active: bool,
-    pub clock: u32,
+    position: Vec2,
+    max_len: usize,
+    text: &'a str,
+    active: bool,
+    clock: u32,
 }
 
 impl<'a> SpriteTextInput<'a> {
@@ -27,10 +27,13 @@ impl<'a> SpriteTextInput<'a> {
         };
     }
 
-    pub fn write_to_model_buffer(&self, buffer: &mut ModelBuffer, resolution: Vec2) {
-        let color = COLOR;
+    pub fn vertices(&self) -> impl Iterator<Item = SpriteVertex> + 'a {
+        let color = TEXT_COLOR;
+        let max_len_zero = self.max_len == 0;
 
-        let visible: &str = if self.active {
+        let visible: &str = if max_len_zero {
+            ""
+        } else if self.active {
             let start = self.text.len().saturating_sub(self.max_len - 1);
             &self.text[start..]
         } else {
@@ -40,18 +43,21 @@ impl<'a> SpriteTextInput<'a> {
 
         let start_x = self.position.x;
         let y = self.position.y;
-
-        for (i, c) in visible.chars().enumerate() {
+        let visible_len = visible.chars().count();
+        let text_vertices = visible.chars().enumerate().flat_map(move |(i, c)| {
             let position = Vec2::new(start_x + i as f32 * TEXT_SIZE.x, y);
-            SpriteText::new(c, false, position, color).write_to_model_buffer(buffer, resolution);
-        }
+            return SpriteText::new(c, false, position, color).vertices();
+        });
 
-        let cursor_visible = self.active && (self.clock / BLINK_PERIOD).is_multiple_of(2);
-        if cursor_visible {
-            let cursor_x = start_x + visible.len() as f32 * TEXT_SIZE.x;
-            let cursor_pos = Vec2::new(cursor_x, y);
-            SpriteText::new('_', false, cursor_pos, color)
-                .write_to_model_buffer(buffer, resolution);
-        }
+        let cursor_visible =
+            !max_len_zero && self.active && (self.clock / BLINK_PERIOD).is_multiple_of(2);
+        let cursor_x = start_x + visible_len as f32 * TEXT_SIZE.x;
+        let cursor_pos = Vec2::new(cursor_x, y);
+        let cursor_vertices = cursor_visible
+            .then_some('_')
+            .into_iter()
+            .flat_map(move |_| SpriteText::new('_', false, cursor_pos, color).vertices());
+
+        return text_vertices.chain(cursor_vertices);
     }
 }

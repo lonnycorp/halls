@@ -1,7 +1,9 @@
 use bytemuck::{Pod, Zeroable};
+use serde::Deserialize;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Pod, Zeroable, Deserialize)]
+#[serde(from = "[u8; 4]")]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -18,6 +20,12 @@ impl Color {
 
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         return Self { r, g, b, a };
+    }
+}
+
+impl From<[u8; 4]> for Color {
+    fn from(value: [u8; 4]) -> Self {
+        return Self::new(value[0], value[1], value[2], value[3]);
     }
 }
 

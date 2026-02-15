@@ -1,9 +1,10 @@
-mod gpu;
+mod context;
 mod handler;
 mod input;
+mod state;
 mod window;
 
-pub use gpu::GPUContext;
-pub use handler::{Event, WindowHandler, WindowOnEventContext};
-pub use input::{InputController, KeyState};
+pub use context::WindowContext;
+pub use handler::{WindowHandler, WindowHandlerEvent};
+pub use input::WindowKeyState;
 pub use window::Window;

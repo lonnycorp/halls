@@ -1,9 +1,7 @@
+mod cross_fader;
 mod data;
-mod effect;
-mod jukebox;
 mod track;
 
-pub use data::{TrackData, TrackDataError};
-pub use effect::Effect;
-pub use jukebox::Jukebox;
+pub use cross_fader::CrossFader;
+pub use data::TrackData;
 pub use track::Track;

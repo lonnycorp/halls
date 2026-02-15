@@ -21,14 +21,14 @@ impl UniformCameraData {
         };
     }
 
-    pub fn set_view(&mut self, position: Vec3, rotation: Vec2) {
+    pub fn view_set(&mut self, position: Vec3, rotation: Vec2) {
         self.view = Mat4::from_rotation_x(-rotation.x)
             * Mat4::from_rotation_y(-rotation.y)
             * Mat4::from_translation(-position);
     }
 }
 
-pub fn bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+pub fn camera_bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     return wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,

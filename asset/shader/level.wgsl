@@ -4,19 +4,12 @@ struct CameraUniform {
     clip_plane: vec4<f32>,
 }
 
-struct TextureEntry {
-    bucket: u32,
-    layer: u32,
-}
-
-struct TextureIndex {
-    entries: array<TextureEntry, 1024>,
-}
-
 struct MaterialEntry {
     num_frames: u32,
     speed: f32,
     offset: u32,
+    color: u32,
+    unlit: u32,
 }
 
 struct MaterialIndex {
@@ -34,23 +27,55 @@ var diffuse: binding_array<texture_2d_array<f32>, 6>;
 @group(1) @binding(0)
 var<uniform> camera: CameraUniform;
 @group(1) @binding(1)
-var<storage, read> texture_index: TextureIndex;
-@group(1) @binding(2)
 var<storage, read> material_index: MaterialIndex;
 
 struct PushConstants {
     clock: u32,
-    lightmap_texture_id: u32,
+    lightmap_material_id: u32,
 }
 
 var<push_constant> pc: PushConstants;
+
+fn unpack_bucket(texture_ref: u32) -> u32 {
+    return texture_ref & 0xFFFFu;
+}
+
+fn unpack_layer(texture_ref: u32) -> u32 {
+    return (texture_ref >> 16u) & 0xFFFFu;
+}
+
+fn unpack_color(color: u32) -> vec4<f32> {
+    let r = f32(color & 0xFFu) / 255.0;
+    let g = f32((color >> 8u) & 0xFFu) / 255.0;
+    let b = f32((color >> 16u) & 0xFFu) / 255.0;
+    let a = f32((color >> 24u) & 0xFFu) / 255.0;
+    return vec4<f32>(r, g, b, a);
+}
+
+fn sample_material(material_id: u32, uv: vec2<f32>) -> vec4<f32> {
+    let mat = material_index.entries[material_id];
+    let material_color = unpack_color(mat.color);
+
+    if (mat.num_frames == 0u) {
+        return material_color;
+    }
+
+    let t = pc.clock % (100u * mat.num_frames);
+    let speed = clamp(mat.speed, 0.0, 1.0);
+    let frame_offset = u32(floor(f32(t) * speed)) % mat.num_frames;
+    let texture_ref = material_index.frames[mat.offset + frame_offset];
+
+    let array_ix = unpack_bucket(texture_ref);
+    let layer_ix = unpack_layer(texture_ref);
+    let sampled = textureSample(diffuse[array_ix], diffuse_sampler, uv, layer_ix);
+    return sampled * material_color;
+}
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) diffuse_uv: vec2<f32>,
     @location(2) lightmap_uv: vec2<f32>,
-    @location(3) texture_ix: u32,
-    @location(4) color: vec4<f32>,
+    @location(3) material_ix: u32,
 }
 
 struct VertexOutput {
@@ -58,8 +83,7 @@ struct VertexOutput {
     @location(0) diffuse_uv: vec2<f32>,
     @location(1) lightmap_uv: vec2<f32>,
     @location(2) world_position: vec3<f32>,
-    @location(3) @interpolate(flat) texture_ix: u32,
-    @location(4) color: vec4<f32>,
+    @location(3) @interpolate(flat) material_ix: u32,
 }
 
 @vertex
@@ -72,8 +96,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.diffuse_uv = in.diffuse_uv;
     out.lightmap_uv = in.lightmap_uv;
     out.world_position = world_position.xyz;
-    out.texture_ix = in.texture_ix;
-    out.color = in.color;
+    out.material_ix = in.material_ix;
     return out;
 }
 
@@ -87,24 +110,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    // Look up material entry to get animation frame info
-    let mat = material_index.entries[in.texture_ix];
-    let t = pc.clock % (100u * mat.num_frames);
-    let speed = clamp(mat.speed, 0.0, 1.0);
-    let frame_offset = u32(floor(f32(t) * speed)) % mat.num_frames;
-    let texture_id = material_index.frames[mat.offset + frame_offset];
+    let diffuse_color = sample_material(in.material_ix, in.diffuse_uv);
+    let material = material_index.entries[in.material_ix];
+    if (material.unlit != 0u) {
+        return diffuse_color;
+    }
 
-    // Look up texture bucket and layer from texture_index
-    let entry = texture_index.entries[texture_id];
-    let array_ix = entry.bucket;
-    let layer_ix = entry.layer;
-
-    let diffuse_color = textureSample(diffuse[array_ix], diffuse_sampler, in.diffuse_uv, layer_ix);
-
-    let lm_entry = texture_index.entries[pc.lightmap_texture_id];
-    let lm_array_ix = lm_entry.bucket;
-    let lm_layer_ix = lm_entry.layer;
-    let light = textureSample(diffuse[lm_array_ix], diffuse_sampler, in.lightmap_uv, lm_layer_ix);
-
-    return diffuse_color * light * in.color;
+    let light = sample_material(pc.lightmap_material_id, in.lightmap_uv);
+    return diffuse_color * light;
 }

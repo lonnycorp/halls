@@ -1,9 +1,8 @@
 use glam::Vec2;
 
-use crate::graphics::color::Color;
-use crate::graphics::model::ModelBuffer;
-use crate::graphics::sprite::Sprite;
-use crate::FONT_TEXTURE_INDEX;
+use crate::graphics::sprite::{Sprite, SpriteVertex};
+
+use super::TextColor;
 
 const TEXT_WIDTH: f32 = 8.0;
 const TEXT_HEIGHT: f32 = 16.0;
@@ -14,14 +13,14 @@ const BOLD_ROW_OFFSET: usize = 8;
 pub const TEXT_SIZE: Vec2 = Vec2::new(TEXT_WIDTH, TEXT_HEIGHT);
 
 pub struct SpriteText {
-    pub c: char,
-    pub bold: bool,
-    pub position: Vec2,
-    pub color: Color,
+    c: char,
+    bold: bool,
+    position: Vec2,
+    color: TextColor,
 }
 
 impl SpriteText {
-    pub fn new(c: char, bold: bool, position: Vec2, color: Color) -> Self {
+    pub fn new(c: char, bold: bool, position: Vec2, color: TextColor) -> Self {
         return Self {
             c,
             bold,
@@ -30,7 +29,7 @@ impl SpriteText {
         };
     }
 
-    pub fn write_to_model_buffer(&self, buffer: &mut ModelBuffer, resolution: Vec2) {
+    pub fn vertices(&self) -> impl Iterator<Item = SpriteVertex> {
         let code = (self.c as usize).wrapping_sub(FIRST_CHAR);
         let code = if code >= 96 { 0 } else { code };
         let row_offset = if self.bold { BOLD_ROW_OFFSET } else { 0 };
@@ -40,14 +39,13 @@ impl SpriteText {
         let uv_position = Vec2::new(col as f32 * TEXT_WIDTH, row as f32 * TEXT_HEIGHT);
         let uv_size = Vec2::new(TEXT_WIDTH, TEXT_HEIGHT);
 
-        Sprite {
+        return Sprite::new(
             uv_position,
             uv_size,
-            texture_ix: FONT_TEXTURE_INDEX as u32,
-            position: self.position,
-            size: TEXT_SIZE,
-            color: self.color,
-        }
-        .write_to_model_buffer(buffer, resolution);
+            self.color.font_material(),
+            self.position,
+            TEXT_SIZE,
+        )
+        .vertices();
     }
 }

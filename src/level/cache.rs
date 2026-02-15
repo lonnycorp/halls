@@ -6,19 +6,19 @@ use std::thread::{self, JoinHandle};
 use lru::LruCache;
 use url::Url;
 
-use super::error::LevelLoadError;
+use super::level::LevelLoadError;
 use super::Level;
 
 enum LevelEntry {
     Loading(Option<JoinHandle<Result<Arc<Level>, LevelLoadError>>>),
     Ready(Arc<Level>),
-    Failed(LevelLoadError),
+    Failed(Arc<LevelLoadError>),
 }
 
 pub enum LevelCacheResult {
     Loading,
     Ready(Arc<Level>),
-    Failed(LevelLoadError),
+    Failed(Arc<LevelLoadError>),
 }
 
 pub struct LevelCache {
@@ -43,14 +43,14 @@ impl LevelCache {
             return match self.cache.get(url).unwrap() {
                 LevelEntry::Ready(level) => LevelCacheResult::Ready(Arc::clone(level)),
                 LevelEntry::Loading(_) => LevelCacheResult::Loading,
-                LevelEntry::Failed(err) => LevelCacheResult::Failed(err.clone()),
+                LevelEntry::Failed(err) => LevelCacheResult::Failed(Arc::clone(err)),
             };
         }
 
         let device = Arc::clone(&self.device);
         let queue = Arc::clone(&self.queue);
         let url_clone = url.clone();
-        let handle = thread::spawn(move || Level::new(url_clone, &device, &queue).map(Arc::new));
+        let handle = thread::spawn(move || Level::load(url_clone, &device, &queue).map(Arc::new));
 
         self.cache
             .put(url.clone(), LevelEntry::Loading(Some(handle)));
@@ -77,7 +77,7 @@ impl LevelCache {
                     *entry = LevelEntry::Ready(level);
                 }
                 Err(error) => {
-                    *entry = LevelEntry::Failed(error);
+                    *entry = LevelEntry::Failed(Arc::new(error));
                 }
             }
             self.pending.pop_front();

@@ -3,33 +3,33 @@ use parry3d::query::{cast_shapes, ShapeCastHit, ShapeCastOptions};
 use parry3d::shape::{Cuboid, TriMesh};
 use url::Url;
 
+use crate::gltf::GLTFMesh;
 use crate::graphics::model::Model;
 use crate::level::cache::{LevelCache, LevelCacheResult};
+use crate::level::fetch::fetch;
 
-use super::geometry::PortalGeometry;
-use super::PortalLink;
+use super::super::trimesh::trimesh_from_vertices;
+use super::geometry::LevelPortalGeometry;
+use super::LevelPortalLink;
 
-#[derive(Debug, Clone)]
-pub enum PortalError {
-    InsufficientVertices,
-    DegenerateGeometry,
-    NotCoplanar,
-    TiltedPortal,
-    InconsistentColors,
-    MissingAnchorColor,
-    AmbiguousAnchorColor,
-    UnstableAnchor,
+#[derive(Debug)]
+pub enum LevelPortalLoadError {
+    URLJoin,
+    Fetch,
+    GLTF,
+    GeometryFromGLTF,
+    ModelUpload,
 }
 
 pub struct LevelPortal {
-    geometry: PortalGeometry,
+    geometry: LevelPortalGeometry,
     model: Model,
     collider: TriMesh,
     link: Url,
 }
 
 impl LevelPortal {
-    pub fn new(geometry: PortalGeometry, model: Model, collider: TriMesh, link: Url) -> Self {
+    pub fn new(geometry: LevelPortalGeometry, model: Model, collider: TriMesh, link: Url) -> Self {
         return Self {
             geometry,
             model,
@@ -38,7 +38,41 @@ impl LevelPortal {
         };
     }
 
-    pub fn geometry(&self) -> &PortalGeometry {
+    pub fn load(
+        base_url: &Url,
+        mesh_href: &str,
+        link_href: &str,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<Self, LevelPortalLoadError> {
+        let mesh_url = base_url
+            .join(mesh_href)
+            .map_err(|_| LevelPortalLoadError::URLJoin)?;
+        let mesh_data = fetch(&mesh_url).map_err(|_| LevelPortalLoadError::Fetch)?;
+        let portal_mesh =
+            GLTFMesh::from_bytes(&mesh_data).map_err(|_| LevelPortalLoadError::GLTF)?;
+
+        let link = base_url
+            .join(link_href)
+            .map_err(|_| LevelPortalLoadError::URLJoin)?;
+        let geometry = LevelPortalGeometry::from_gltf(portal_mesh.vertices())
+            .map_err(|_| LevelPortalLoadError::GeometryFromGLTF)?;
+
+        let portal_vertices: Vec<_> = portal_mesh.vertices().collect();
+        let portal_buffer: Vec<_> = portal_vertices
+            .iter()
+            .map(|vertex| vertex.to_model_vertex())
+            .collect();
+        let mut portal_model = Model::new(device, portal_mesh.vertex_count());
+        portal_model
+            .upload(queue, &portal_buffer)
+            .map_err(|_| LevelPortalLoadError::ModelUpload)?;
+        let portal_collider = trimesh_from_vertices(portal_vertices.into_iter());
+
+        return Ok(Self::new(geometry, portal_model, portal_collider, link));
+    }
+
+    pub fn geometry(&self) -> &LevelPortalGeometry {
         return &self.geometry;
     }
 
@@ -69,7 +103,7 @@ impl LevelPortal {
         .unwrap();
     }
 
-    pub fn link(&self, cache: &mut LevelCache) -> Option<PortalLink> {
+    pub fn link(&self, cache: &mut LevelCache) -> Option<LevelPortalLink> {
         let fragment = self.link.fragment()?;
         let mut url = self.link.clone();
         url.set_fragment(None);
@@ -83,7 +117,7 @@ impl LevelPortal {
             return None;
         }
 
-        return Some(PortalLink::new(
+        return Some(LevelPortalLink::from_geometry_pair(
             url,
             fragment.to_string(),
             self.geometry.clone(),

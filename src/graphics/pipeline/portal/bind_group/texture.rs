@@ -1,16 +1,14 @@
-use crate::graphics::render_target::{
-    bind_group_layout_entry as rt_bind_group_layout_entry, RenderTarget,
-};
+use crate::graphics::render_target::{render_target_bind_group_layout_entry, RenderTarget};
 use crate::graphics::texture::{sampler_bind_group_layout_entry, Sampler};
 
 const BIND_GROUP_INDEX: u32 = 0;
 
-pub fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+pub fn texture_bind_group_layout_create(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     return device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Portal Texture Bind Group Layout"),
         entries: &[
             sampler_bind_group_layout_entry(0),
-            rt_bind_group_layout_entry(1),
+            render_target_bind_group_layout_entry(1),
         ],
     });
 }
@@ -21,7 +19,7 @@ pub struct PipelinePortalBindGroupTexture {
 
 impl PipelinePortalBindGroupTexture {
     pub fn new(device: &wgpu::Device, render_target: &RenderTarget) -> Self {
-        let layout = create_bind_group_layout(device);
+        let layout = texture_bind_group_layout_create(device);
         let sampler = Sampler::new(
             device,
             (

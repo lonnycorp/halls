@@ -1,42 +1,183 @@
-use glam::{Vec2, Vec3};
+use glam::Vec3;
 use std::collections::HashMap;
 use url::Url;
 
 use parry3d::math::{Isometry, Vector};
 use parry3d::query::{cast_shapes, ShapeCastHit, ShapeCastOptions};
-use parry3d::shape::{Cuboid, TriMesh};
+use parry3d::shape::Cuboid;
 
-use super::fetch::FetchedData;
 use crate::audio::TrackData;
-use crate::gltf::GLTFMesh;
-use crate::graphics::color::Color;
-use crate::graphics::model::{Model, ModelBuffer, ModelVertex};
-use crate::graphics::pipeline::level::{PipelineLevelBindGroupTexture, TEXTURE_BUCKETS};
-use crate::graphics::storage::{
-    MaterialIndexStorageBuffer, MaterialIndexStorageBufferData, TextureIndexStorageBuffer,
-    TextureIndexStorageBufferData,
+use crate::gltf::{GLTFMesh, GLTFVertex};
+use crate::graphics::model::{Model, ModelUploadError, ModelVertex};
+
+use super::fetch::fetch;
+use super::manifest::{
+    LevelManifest, LevelManifestColliderType, LevelManifestMeta, LevelManifestSurface,
 };
-use crate::graphics::texture::TextureArray;
+use super::material::MaterialData as LevelMaterialData;
+use super::portal::LevelPortal;
+use super::render::LevelRenderParams;
+use super::state::{LevelColliderData, LevelState};
+use super::trimesh::trimesh_from_vertices;
 
-use super::error::LevelLoadError;
-use super::manifest::{LevelManifest, LevelManifestMeta};
-use super::portal::{LevelPortal, PortalGeometry};
-use super::render::LevelRenderContext;
-use super::state::LevelState;
-
-fn find_texture_bucket(w: u32, h: u32) -> Option<usize> {
-    return TEXTURE_BUCKETS
-        .iter()
-        .position(|b| b.width == w && b.height == h);
+#[derive(Debug)]
+pub enum LevelMeshLoadError {
+    URLJoin,
+    Fetch,
+    GLTF,
 }
 
-const FALLBACK_TEXTURE_SIZE: u32 = 0x40;
+#[derive(Debug)]
+pub enum LevelTrackLoadError {
+    URLJoin,
+    Fetch,
+    Decode,
+}
+
+#[derive(Debug)]
+pub enum LevelLoadError {
+    Manifest,
+    Mesh,
+    Material,
+    Portal,
+    Track,
+    ModelUpload,
+}
+
+impl std::fmt::Display for LevelLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        return match self {
+            LevelLoadError::Manifest => write!(f, "failed to load level manifest"),
+            LevelLoadError::Mesh => write!(f, "failed to load level mesh"),
+            LevelLoadError::Material => write!(f, "failed to load level materials"),
+            LevelLoadError::Portal => write!(f, "failed to load level portals"),
+            LevelLoadError::Track => write!(f, "failed to load level track"),
+            LevelLoadError::ModelUpload => write!(f, "failed to upload level model"),
+        };
+    }
+}
+
+pub enum SurfaceKind {
+    Wall,
+    Ladder,
+}
+
+pub struct LevelHit {
+    pub hit: ShapeCastHit,
+    pub kind: SurfaceKind,
+}
 
 pub struct Level {
-    pub(super) state: LevelState,
+    pub state: LevelState,
 }
 
 impl Level {
+    fn surface_collider(surface: &LevelManifestSurface) -> LevelManifestColliderType {
+        let collider = match surface {
+            LevelManifestSurface::TextureSingle { collider, .. } => collider,
+            LevelManifestSurface::TextureMulti { collider, .. } => collider,
+            LevelManifestSurface::Untextured { collider, .. } => collider,
+            LevelManifestSurface::Invisible { collider } => collider,
+        };
+
+        return collider.unwrap_or(LevelManifestColliderType::Wall);
+    }
+
+    fn surface_index_build<'a>(
+        manifest: &'a LevelManifest,
+        mesh: &GLTFMesh,
+    ) -> Vec<Option<&'a LevelManifestSurface>> {
+        let mut mapped: Vec<Option<&LevelManifestSurface>> =
+            Vec::with_capacity(mesh.materials().len());
+
+        for material_name in mesh.materials() {
+            let surface = match material_name {
+                Some(name) => manifest.level().surface(name),
+                None => None,
+            };
+            mapped.push(surface);
+        }
+        return mapped;
+    }
+
+    fn mesh_load(base_url: &Url, mesh_href: &str) -> Result<GLTFMesh, LevelMeshLoadError> {
+        let mesh_url = base_url
+            .join(mesh_href)
+            .map_err(|_| LevelMeshLoadError::URLJoin)?;
+        let mesh_data = fetch(&mesh_url).map_err(|_| LevelMeshLoadError::Fetch)?;
+        return GLTFMesh::from_bytes(&mesh_data).map_err(|_| LevelMeshLoadError::GLTF);
+    }
+
+    fn model_build(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mesh: &GLTFMesh,
+        surfaces: &[Option<&LevelManifestSurface>],
+    ) -> Result<Model, ModelUploadError> {
+        let mut vertices: Vec<ModelVertex> = Vec::new();
+        for vertex in mesh.vertices() {
+            let material_ix = match vertex.material_ix {
+                Some(material_ix) => material_ix,
+                None => continue,
+            };
+            let surface = match surfaces.get(material_ix as usize) {
+                Some(Some(surface)) => surface,
+                _ => continue,
+            };
+            if let LevelManifestSurface::Invisible { .. } = surface {
+                continue;
+            }
+            vertices.push(vertex.to_model_vertex());
+        }
+
+        let mut model = Model::new(device, mesh.vertex_count());
+        model.upload(queue, &vertices)?;
+        return Ok(model);
+    }
+
+    fn track_load(base_url: &Url, track_href: &str) -> Result<TrackData, LevelTrackLoadError> {
+        let track_url = base_url
+            .join(track_href)
+            .map_err(|_| LevelTrackLoadError::URLJoin)?;
+        let track_data = fetch(&track_url).map_err(|_| LevelTrackLoadError::Fetch)?;
+        return TrackData::new(&track_data, true).map_err(|_| LevelTrackLoadError::Decode);
+    }
+
+    fn collider_build(
+        mesh: &GLTFMesh,
+        surfaces: &[Option<&LevelManifestSurface>],
+    ) -> LevelColliderData {
+        let mut wall_vertices: Vec<GLTFVertex> = Vec::new();
+        let mut ladder_vertices: Vec<GLTFVertex> = Vec::new();
+
+        for vertex in mesh.vertices() {
+            let material_ix = match vertex.material_ix {
+                Some(material_ix) => material_ix,
+                None => continue,
+            };
+            let surface = match surfaces.get(material_ix as usize) {
+                Some(Some(surface)) => surface,
+                _ => continue,
+            };
+            let collider = Self::surface_collider(surface);
+
+            match collider {
+                LevelManifestColliderType::Wall => {
+                    wall_vertices.push(vertex);
+                }
+                LevelManifestColliderType::Ladder => {
+                    ladder_vertices.push(vertex);
+                }
+                LevelManifestColliderType::Null => {}
+            }
+        }
+
+        return LevelColliderData {
+            wall: trimesh_from_vertices(wall_vertices.into_iter()),
+            ladder: trimesh_from_vertices(ladder_vertices.into_iter()),
+        };
+    }
+
     pub fn url(&self) -> &Url {
         return &self.state.url;
     }
@@ -51,17 +192,53 @@ impl Level {
         vel: &Vector<f32>,
         shape: &Cuboid,
         max_toi: f32,
-    ) -> Option<ShapeCastHit> {
-        return cast_shapes(
+    ) -> Option<LevelHit> {
+        let wall_hit = cast_shapes(
             pos,
             vel,
             shape,
             &Isometry::identity(),
             &Vector::zeros(),
-            &self.state.trimesh,
+            &self.state.collider_data.wall,
             ShapeCastOptions::with_max_time_of_impact(max_toi),
         )
         .unwrap();
+
+        let ladder_hit = cast_shapes(
+            pos,
+            vel,
+            shape,
+            &Isometry::identity(),
+            &Vector::zeros(),
+            &self.state.collider_data.ladder,
+            ShapeCastOptions::with_max_time_of_impact(max_toi),
+        )
+        .unwrap();
+
+        return match (wall_hit, ladder_hit) {
+            (Some(wall), Some(ladder)) => {
+                if wall.time_of_impact <= ladder.time_of_impact {
+                    Some(LevelHit {
+                        hit: ladder,
+                        kind: SurfaceKind::Ladder,
+                    })
+                } else {
+                    Some(LevelHit {
+                        hit: wall,
+                        kind: SurfaceKind::Wall,
+                    })
+                }
+            }
+            (Some(wall), None) => Some(LevelHit {
+                hit: wall,
+                kind: SurfaceKind::Wall,
+            }),
+            (None, Some(ladder)) => Some(LevelHit {
+                hit: ladder,
+                kind: SurfaceKind::Ladder,
+            }),
+            (None, None) => None,
+        };
     }
 
     pub fn track(&self) -> Option<&TrackData> {
@@ -80,258 +257,50 @@ impl Level {
         return self.state.spawn;
     }
 
-    pub fn render(&self, ctx: LevelRenderContext) {
-        super::render::level_render(&self.state, ctx);
+    pub fn render(&self, params: LevelRenderParams) {
+        super::render::level_render(&self.state, params);
     }
 
-    pub fn new(
+    pub fn load(
         url: Url,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Self, LevelLoadError> {
-        let manifest_file = FetchedData::new(&url).map_err(|e| LevelLoadError::Fetch {
-            asset: url.as_str().to_string(),
-            error: e,
-        })?;
-        let manifest =
-            LevelManifest::load(manifest_file.data()).map_err(LevelLoadError::Manifest)?;
+        let manifest = LevelManifest::load(&url).map_err(|_| LevelLoadError::Manifest)?;
 
-        let base_url = url.join(".").unwrap();
+        let level_mesh =
+            Self::mesh_load(&url, manifest.level().mesh()).map_err(|_| LevelLoadError::Mesh)?;
+        let surface_index = Self::surface_index_build(&manifest, &level_mesh);
 
-        let model_url = base_url
-            .join(&manifest.level.model)
-            .map_err(|_| LevelLoadError::URLInvalid(manifest.level.model.clone()))?;
-        let model_file = FetchedData::new(&model_url).map_err(|e| LevelLoadError::Fetch {
-            asset: manifest.level.model.clone(),
-            error: e,
-        })?;
-        let mesh = GLTFMesh::from_bytes(model_file.data()).map_err(|e| LevelLoadError::Mesh {
-            asset: manifest.level.model.clone(),
-            error: e,
-        })?;
-        let materials: &[Option<String>] = mesh.materials();
+        let material_data = LevelMaterialData::load(
+            device,
+            queue,
+            &url,
+            &surface_index,
+            manifest.level().lightmap(),
+        )
+        .map_err(|_| LevelLoadError::Material)?;
+        let model = Self::model_build(device, queue, &level_mesh, &surface_index)
+            .map_err(|_| LevelLoadError::ModelUpload)?;
 
-        let trimesh = match &manifest.level.collider {
-            Some(collider_path) => {
-                let collider_url = base_url
-                    .join(collider_path)
-                    .map_err(|_| LevelLoadError::URLInvalid(collider_path.clone()))?;
-                let collider_file =
-                    FetchedData::new(&collider_url).map_err(|e| LevelLoadError::Fetch {
-                        asset: collider_path.clone(),
-                        error: e,
-                    })?;
-                let collider_mesh = GLTFMesh::from_bytes(collider_file.data()).map_err(|e| {
-                    LevelLoadError::Mesh {
-                        asset: collider_path.clone(),
-                        error: e,
-                    }
-                })?;
-                TriMesh::from(&collider_mesh)
-            }
-            None => TriMesh::from(&mesh),
-        };
-
-        let diffuse =
-            TEXTURE_BUCKETS.map(|b| TextureArray::new(device, (b.width, b.height), b.layers));
-        let mut texture_index_data = TextureIndexStorageBufferData::new();
-        let mut material_index_data = MaterialIndexStorageBufferData::new();
-        let mut next_free: [usize; TEXTURE_BUCKETS.len()] = [0; TEXTURE_BUCKETS.len()];
-        let mut path_to_texture_id: HashMap<String, u32> = HashMap::new();
-        let fallback_bucket_ix =
-            find_texture_bucket(FALLBACK_TEXTURE_SIZE, FALLBACK_TEXTURE_SIZE).unwrap();
-        let fallback_image = image::RgbaImage::from_pixel(
-            FALLBACK_TEXTURE_SIZE,
-            FALLBACK_TEXTURE_SIZE,
-            image::Rgba([
-                Color::WHITE.r,
-                Color::WHITE.g,
-                Color::WHITE.b,
-                Color::WHITE.a,
-            ]),
-        );
-        let fallback_layer = next_free[fallback_bucket_ix];
-        if fallback_layer >= TEXTURE_BUCKETS[fallback_bucket_ix].layers {
-            return Err(LevelLoadError::TextureBucketExhausted(
-                "fallback".to_string(),
-            ));
-        }
-        diffuse[fallback_bucket_ix].write_texture(queue, fallback_layer, &fallback_image);
-        next_free[fallback_bucket_ix] += 1;
-        let fallback_texture_id = texture_index_data
-            .write(fallback_bucket_ix as u32, fallback_layer as u32)
-            .map_err(LevelLoadError::TextureIndex)?;
-
-        let mut material_vertex_color: Vec<Color> = Vec::with_capacity(materials.len());
-        for (ix, material) in materials.iter().enumerate() {
-            if let Some(name) = material {
-                if let Some(material_manifest) = manifest.level.material.get(name) {
-                    let tint = material_manifest.tint();
-                    material_vertex_color.push(Color::new(tint[0], tint[1], tint[2], 255));
-                    let (frame_paths, animation_speed) = material_manifest.frame_data();
-                    let mut frames: Vec<u32> = Vec::with_capacity(frame_paths.len());
-
-                    for image_path in frame_paths {
-                        if let Some(&cached_id) = path_to_texture_id.get(image_path) {
-                            frames.push(cached_id);
-                            continue;
-                        }
-
-                        let material_url = base_url
-                            .join(image_path)
-                            .map_err(|_| LevelLoadError::URLInvalid(image_path.to_string()))?;
-                        let material_file =
-                            FetchedData::new(&material_url).map_err(|e| LevelLoadError::Fetch {
-                                asset: image_path.to_string(),
-                                error: e,
-                            })?;
-                        let img = image::load_from_memory(material_file.data())
-                            .map_err(|_| LevelLoadError::ImageLoadFailed {
-                                asset: image_path.to_string(),
-                            })?
-                            .to_rgba8();
-                        let (w, h) = img.dimensions();
-
-                        let bucket_ix = find_texture_bucket(w, h).ok_or_else(|| {
-                            LevelLoadError::InvalidMaterialTextureDimensions(name.clone())
-                        })?;
-
-                        let layer = next_free[bucket_ix];
-                        if layer >= TEXTURE_BUCKETS[bucket_ix].layers {
-                            return Err(LevelLoadError::TextureBucketExhausted(name.clone()));
-                        }
-
-                        diffuse[bucket_ix].write_texture(queue, layer, &img);
-                        next_free[bucket_ix] += 1;
-
-                        let texture_id = texture_index_data
-                            .write(bucket_ix as u32, layer as u32)
-                            .map_err(LevelLoadError::TextureIndex)?;
-                        path_to_texture_id.insert(image_path.to_string(), texture_id);
-                        frames.push(texture_id);
-                    }
-
-                    material_index_data
-                        .write(ix, animation_speed, &frames)
-                        .map_err(LevelLoadError::MaterialIndex)?;
-                    continue;
-                }
-            }
-            material_vertex_color.push(Color::WHITE);
-            material_index_data
-                .write(ix, 0.0, &[fallback_texture_id])
-                .map_err(LevelLoadError::MaterialIndex)?;
-        }
-
-        let mut buffer = ModelBuffer::new();
-        for v in mesh.model_vertices() {
-            let material_color = match v.material_ix {
-                Some(ix) => material_vertex_color[ix as usize],
-                None => Color::WHITE,
-            };
-            buffer.push(ModelVertex {
-                position: v.position.into(),
-                diffuse_uv: v.diffuse_uv.unwrap_or(Vec2::ZERO).into(),
-                lightmap_uv: v.lightmap_uv.unwrap_or(Vec2::ZERO).into(),
-                texture_ix: v.material_ix.unwrap_or(0),
-                color: material_color,
-            });
-        }
-        let mut model = Model::new(device, mesh.vertex_count());
-        model.upload(queue, &buffer);
-
-        let lightmap_texture_id = match &manifest.level.lightmap {
-            Some(lightmap_path) => {
-                let lightmap_url = base_url
-                    .join(lightmap_path)
-                    .map_err(|_| LevelLoadError::URLInvalid(lightmap_path.clone()))?;
-                let lightmap_file =
-                    FetchedData::new(&lightmap_url).map_err(|e| LevelLoadError::Fetch {
-                        asset: lightmap_path.clone(),
-                        error: e,
-                    })?;
-                let img = image::load_from_memory(lightmap_file.data())
-                    .map_err(|_| LevelLoadError::ImageLoadFailed {
-                        asset: lightmap_path.clone(),
-                    })?
-                    .to_rgba8();
-                let (w, h) = img.dimensions();
-                let bucket_ix = find_texture_bucket(w, h).ok_or_else(|| {
-                    LevelLoadError::InvalidMaterialTextureDimensions(lightmap_path.clone())
-                })?;
-                let layer = next_free[bucket_ix];
-                if layer >= TEXTURE_BUCKETS[bucket_ix].layers {
-                    return Err(LevelLoadError::TextureBucketExhausted(
-                        lightmap_path.clone(),
-                    ));
-                }
-                diffuse[bucket_ix].write_texture(queue, layer, &img);
-                texture_index_data
-                    .write(bucket_ix as u32, layer as u32)
-                    .map_err(LevelLoadError::TextureIndex)?
-            }
-            None => fallback_texture_id,
-        };
-
-        let texture_index = TextureIndexStorageBuffer::new(device);
-        texture_index.write(queue, &texture_index_data);
-        let material_index = MaterialIndexStorageBuffer::new(device);
-        material_index.write(queue, &material_index_data);
-
-        let texture_bind_group = PipelineLevelBindGroupTexture::new(device, &diffuse);
+        let collider_data = Self::collider_build(&level_mesh, &surface_index);
 
         let mut portals = HashMap::new();
-        for (name, manifest_portal) in &manifest.portal {
-            let model_url = base_url
-                .join(&manifest_portal.model)
-                .map_err(|_| LevelLoadError::URLInvalid(manifest_portal.model.clone()))?;
-            let model_file = FetchedData::new(&model_url).map_err(|e| LevelLoadError::Fetch {
-                asset: manifest_portal.model.clone(),
-                error: e,
-            })?;
-            let portal_mesh =
-                GLTFMesh::from_bytes(model_file.data()).map_err(|e| LevelLoadError::Mesh {
-                    asset: manifest_portal.model.clone(),
-                    error: e,
-                })?;
-
-            let link = base_url
-                .join(&manifest_portal.link)
-                .map_err(|_| LevelLoadError::URLInvalid(manifest_portal.link.clone()))?;
-            let geometry =
-                PortalGeometry::from_gltf(&portal_mesh).map_err(|e| LevelLoadError::Portal {
-                    asset: manifest_portal.model.clone(),
-                    error: e,
-                })?;
-
-            let mut portal_buffer = ModelBuffer::new();
-            for v in portal_mesh.model_vertices() {
-                v.write_to_model_buffer(&mut portal_buffer);
-            }
-            let mut portal_model = Model::new(device, portal_mesh.vertex_count());
-            portal_model.upload(queue, &portal_buffer);
-            let portal_collider = TriMesh::from(&portal_mesh);
-
-            let portal = LevelPortal::new(geometry, portal_model, portal_collider, link);
+        for (name, manifest_portal) in manifest.portal_iter() {
+            let portal = LevelPortal::load(
+                &url,
+                manifest_portal.mesh(),
+                manifest_portal.link_href(),
+                device,
+                queue,
+            )
+            .map_err(|_| LevelLoadError::Portal)?;
             portals.insert(name.clone(), portal);
         }
 
-        let track = match &manifest.level.track {
-            Some(track_path) => {
-                let track_url = base_url
-                    .join(track_path)
-                    .map_err(|_| LevelLoadError::URLInvalid(track_path.clone()))?;
-                let track_file =
-                    FetchedData::new(&track_url).map_err(|e| LevelLoadError::Fetch {
-                        asset: track_path.clone(),
-                        error: e,
-                    })?;
-                Some(TrackData::new(track_file.data(), true).map_err(|e| {
-                    LevelLoadError::Track {
-                        asset: track_path.clone(),
-                        error: e,
-                    }
-                })?)
+        let track = match manifest.level().track() {
+            Some(track_href) => {
+                Some(Self::track_load(&url, track_href).map_err(|_| LevelLoadError::Track)?)
             }
             None => None,
         };
@@ -339,14 +308,11 @@ impl Level {
         return Ok(Self {
             state: LevelState {
                 url,
-                meta: manifest.meta,
-                spawn: Vec3::from_array(manifest.level.spawn),
-                trimesh,
+                meta: manifest.meta().clone(),
+                spawn: manifest.level().spawn(),
+                collider_data,
                 model,
-                texture_index,
-                material_index,
-                texture_bind_group,
-                lightmap_texture_id,
+                material_data,
                 portals,
                 track,
             },

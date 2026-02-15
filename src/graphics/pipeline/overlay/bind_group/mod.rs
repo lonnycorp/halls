@@ -1,5 +1,8 @@
+mod config;
 mod texture;
 
-pub(super) use texture::create_bind_group_layout as create_bind_group_layout_texture;
+pub use config::config_bind_group_layout_create;
+pub use texture::texture_bind_group_layout_create;
 
+pub use config::PipelineOverlayBindGroupConfig;
 pub use texture::PipelineOverlayBindGroupTexture;

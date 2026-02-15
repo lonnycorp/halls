@@ -1,4 +1,4 @@
-use winit::keyboard::KeyCode;
+use winit::keyboard::{Key, NamedKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::EnumIter, strum::EnumCount)]
 pub enum ConfigControl {
@@ -11,14 +11,14 @@ pub enum ConfigControl {
 }
 
 impl ConfigControl {
-    pub fn default_key_code(self) -> KeyCode {
+    pub fn key_default(self) -> Key {
         return match self {
-            ConfigControl::Forward => KeyCode::KeyW,
-            ConfigControl::Back => KeyCode::KeyS,
-            ConfigControl::StrafeLeft => KeyCode::KeyA,
-            ConfigControl::StrafeRight => KeyCode::KeyD,
-            ConfigControl::Jump => KeyCode::Space,
-            ConfigControl::Crouch => KeyCode::ControlLeft,
+            ConfigControl::Forward => Key::Character("w".into()),
+            ConfigControl::Back => Key::Character("s".into()),
+            ConfigControl::StrafeLeft => Key::Character("a".into()),
+            ConfigControl::StrafeRight => Key::Character("d".into()),
+            ConfigControl::Jump => Key::Named(NamedKey::Space),
+            ConfigControl::Crouch => Key::Named(NamedKey::Control),
         };
     }
 }

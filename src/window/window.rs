@@ -1,105 +1,70 @@
-use std::sync::Arc;
+use glam::Vec2;
 use winit::application::ApplicationHandler;
-use winit::event::{DeviceEvent, ElementState, WindowEvent};
+use winit::event::{DeviceEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::keyboard::PhysicalKey;
-use winit::window::{Window as WinitWindow, WindowId};
+use winit::window::WindowId;
 
-use super::gpu::GPUContext;
-use super::handler::{Event, WindowOnEventContext};
-use super::input::{InputController, InputState};
+use super::context::WindowContext;
+use super::handler::WindowHandlerEvent;
+use super::input::{window_input_key_handle, window_input_mouse_handle};
+use super::state::WindowState;
 use super::WindowHandler;
 
 pub struct Window<H: WindowHandler> {
     handler: H,
-    ctx: Option<GPUContext>,
-    input_state: InputState,
+    state: Option<WindowState>,
 }
 
 impl<H: WindowHandler> Window<H> {
     pub fn new(handler: H) -> Self {
         return Self {
             handler,
-            ctx: None,
-            input_state: InputState::new(),
+            state: None,
         };
     }
 
-    pub fn run(mut self) {
+    pub fn run(&mut self) {
         env_logger::init();
         let event_loop = EventLoop::new().unwrap();
-        event_loop.run_app(&mut self).unwrap();
+        event_loop.run_app(self).unwrap();
     }
 }
 
 impl<H: WindowHandler> ApplicationHandler for Window<H> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.ctx.is_some() {
+        if self.state.is_some() {
             return;
         }
-        let handle = Arc::new(
-            event_loop
-                .create_window(
-                    WinitWindow::default_attributes()
-                        .with_title(crate::WINDOW_TITLE)
-                        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None))),
-                )
-                .unwrap(),
-        );
-        let mut ctx = GPUContext::new(handle);
-        let mut on_event_ctx = WindowOnEventContext {
-            gpu: &mut ctx,
-            event_loop,
-            input: InputController::new(&mut self.input_state),
-        };
-        self.handler.on_event(&mut on_event_ctx, Event::Resume);
-        self.ctx = Some(ctx);
+
+        let mut state = WindowState::new(event_loop);
+        let mut on_event_ctx = WindowContext::new(event_loop, &mut state);
+        self.handler
+            .on_event(&mut on_event_ctx, WindowHandlerEvent::Resume);
+        self.state = Some(state);
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.ctx = None;
+        self.state = None;
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        let Self {
-            handler,
-            ctx,
-            input_state,
-        } = self;
-        let Some(ref mut ctx) = ctx else { return };
+        let Self { handler, state } = self;
+        let Some(state) = state else { return };
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
-                let pressed = event.state == ElementState::Pressed;
-                let text = event.text.map(|s| s.to_string());
-                if let PhysicalKey::Code(key) = event.physical_key {
-                    input_state.handle_key(key, pressed, text.as_deref());
-                }
+                window_input_key_handle(state, &event);
             }
             WindowEvent::Resized(size) => {
-                ctx.resize(size.width, size.height);
-                let mut on_event_ctx = WindowOnEventContext {
-                    gpu: ctx,
-                    event_loop,
-                    input: InputController::new(input_state),
-                };
-                handler.on_event(
-                    &mut on_event_ctx,
-                    Event::Resize {
-                        width: size.width,
-                        height: size.height,
-                    },
-                );
+                let mut on_event_ctx = WindowContext::new(event_loop, state);
+                on_event_ctx.resize(Vec2::new(size.width as f32, size.height as f32));
+                handler.on_event(&mut on_event_ctx, WindowHandlerEvent::Resize);
             }
             WindowEvent::RedrawRequested => {
-                let mut on_event_ctx = WindowOnEventContext {
-                    gpu: ctx,
-                    event_loop,
-                    input: InputController::new(input_state),
-                };
-                handler.on_event(&mut on_event_ctx, Event::Redraw);
-                ctx.handle.request_redraw();
+                let mut on_event_ctx = WindowContext::new(event_loop, state);
+                handler.on_event(&mut on_event_ctx, WindowHandlerEvent::Redraw);
+                on_event_ctx.request_redraw();
             }
             _ => {}
         }
@@ -111,9 +76,12 @@ impl<H: WindowHandler> ApplicationHandler for Window<H> {
         _device_id: winit::event::DeviceId,
         event: DeviceEvent,
     ) {
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+
         if let DeviceEvent::MouseMotion { delta } = event {
-            self.input_state
-                .handle_mouse((delta.0 as f32, delta.1 as f32));
+            window_input_mouse_handle(state, (delta.0 as f32, delta.1 as f32));
         }
     }
 }

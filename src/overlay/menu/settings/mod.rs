@@ -1,4 +1,5 @@
 mod item;
+mod key;
 mod settings;
 
-pub use settings::{MenuSettings, MenuSettingsUpdateContext};
+pub use settings::{MenuSettings, MenuSettingsUpdateParams};

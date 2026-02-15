@@ -1,4 +1,4 @@
 mod home;
 mod item;
 
-pub use home::{MenuHome, MenuHomeUpdateContext};
+pub use home::{MenuHome, MenuHomeUpdateParams};

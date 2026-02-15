@@ -1,7 +1,5 @@
-mod buffer;
 mod model;
 mod vertex;
 
-pub use buffer::ModelBuffer;
-pub use model::Model;
-pub use vertex::{layout, ModelVertex};
+pub use model::{Model, ModelUploadError};
+pub use vertex::{model_layout, ModelVertex};

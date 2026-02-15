@@ -1,15 +1,14 @@
 use glam::Vec2;
 use strum::{EnumCount, IntoEnumIterator};
-use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::KeyCode;
+use winit::keyboard::{Key, NamedKey};
 
-use crate::audio::Effect;
-use crate::graphics::model::ModelBuffer;
-use crate::graphics::sprite::{OptionState, SpriteBorder, SpriteTextOption, TEXT_SIZE};
-use crate::window::{InputController, KeyState};
+use crate::audio::Track;
+use crate::graphics::model::ModelVertex;
+use crate::graphics::sprite::{SpriteBorder, TEXT_SIZE};
+use crate::window::{WindowContext, WindowKeyState};
 use crate::{Status, StatusBuffer};
 
-use super::item::MenuHomeItem;
+use super::item::{MenuHomeItem, MenuHomeItemOnSelectParams, MAX_ITEM_LEN};
 
 const BORDER: f32 = 3.0;
 const TEXT_PADDING: f32 = 3.0;
@@ -17,19 +16,17 @@ const SCREEN_PADDING: f32 = 6.0;
 const INSET: f32 = BORDER + TEXT_PADDING;
 const ITEM_INDENT: f32 = TEXT_SIZE.x + 2.0;
 
-const MAX_ITEM_LEN: usize = 12;
 const ROW_WIDTH: f32 = ITEM_INDENT + MAX_ITEM_LEN as f32 * TEXT_SIZE.x;
 const BOX_WIDTH: f32 = ROW_WIDTH + INSET * 2.0;
 const BOX_HEIGHT: f32 = MenuHomeItem::COUNT as f32 * TEXT_SIZE.y + INSET * 2.0;
 
-pub struct MenuHomeUpdateContext<'a> {
-    pub event_loop: &'a ActiveEventLoop,
-    pub buffer: &'a mut ModelBuffer,
+pub struct MenuHomeUpdateParams<'a> {
+    pub buffer: &'a mut Vec<ModelVertex>,
     pub resolution: Vec2,
-    pub input: &'a InputController<'a>,
+    pub window: &'a WindowContext<'a>,
     pub status: &'a mut StatusBuffer,
-    pub select_effect: &'a Effect,
-    pub move_effect: &'a Effect,
+    pub select_track: &'a Track,
+    pub move_track: &'a Track,
 }
 
 pub struct MenuHome {
@@ -41,36 +38,41 @@ impl MenuHome {
         return Self { selected: 0 };
     }
 
-    pub fn update(&mut self, ctx: &mut MenuHomeUpdateContext) {
-        if !matches!(ctx.status.get(), Status::MenuHome) {
+    pub fn update(&mut self, params: &mut MenuHomeUpdateParams) {
+        if !matches!(params.status.get(), Status::MenuHome) {
             return;
         }
 
-        if let KeyState::Pressed = ctx.input.key(KeyCode::ArrowUp) {
+        if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::ArrowUp)) {
             self.selected = (self.selected + MenuHomeItem::COUNT - 1) % MenuHomeItem::COUNT;
-            ctx.move_effect.reset();
-            ctx.move_effect.play();
+            params.move_track.reset();
+            params.move_track.play();
         }
-        if let KeyState::Pressed = ctx.input.key(KeyCode::ArrowDown) {
+        if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::ArrowDown)) {
             self.selected = (self.selected + 1) % MenuHomeItem::COUNT;
-            ctx.move_effect.reset();
-            ctx.move_effect.play();
+            params.move_track.reset();
+            params.move_track.play();
         }
-        if let KeyState::Pressed = ctx.input.key(KeyCode::Escape) {
-            ctx.move_effect.reset();
-            ctx.move_effect.play();
-            ctx.status.set(Status::Simulation);
-        } else if let KeyState::Pressed = ctx.input.key(KeyCode::Enter) {
-            ctx.select_effect.reset();
-            ctx.select_effect.play();
+        if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Escape)) {
+            params.move_track.reset();
+            params.move_track.play();
+            params.status.set(Status::Simulation);
+        } else if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Enter)) {
             if let Some(item) = MenuHomeItem::iter().nth(self.selected) {
-                item.on_select(ctx.event_loop, ctx.status);
+                item.on_select(&mut MenuHomeItemOnSelectParams {
+                    window: params.window,
+                    status: params.status,
+                    select_track: params.select_track,
+                });
             }
         }
 
         let box_pos = Vec2::new(SCREEN_PADDING, SCREEN_PADDING);
-        SpriteBorder::new(box_pos, Vec2::new(BOX_WIDTH, BOX_HEIGHT))
-            .write_to_model_buffer(ctx.buffer, ctx.resolution);
+        params.buffer.extend(
+            SpriteBorder::new(box_pos, Vec2::new(BOX_WIDTH, BOX_HEIGHT))
+                .vertices()
+                .map(|vertex| vertex.to_model_vertex(params.resolution)),
+        );
 
         let content_x = box_pos.x + INSET;
         let content_y = box_pos.y + INSET;
@@ -78,14 +80,10 @@ impl MenuHome {
         for (i, item) in MenuHomeItem::iter().enumerate() {
             let y = content_y + i as f32 * TEXT_SIZE.y;
             let hovered = i == self.selected;
-            SpriteTextOption::new(
-                Vec2::new(content_x, y),
-                MAX_ITEM_LEN,
-                hovered,
-                OptionState::Unselected,
-                item.name(),
-            )
-            .write_to_model_buffer(ctx.buffer, ctx.resolution);
+            params.buffer.extend(
+                item.vertices(Vec2::new(content_x, y), hovered)
+                    .map(|vertex| vertex.to_model_vertex(params.resolution)),
+            );
         }
     }
 }

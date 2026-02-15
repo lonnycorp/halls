@@ -1,11 +1,11 @@
-use crate::graphics::model::layout;
+use crate::graphics::model::model_layout;
 
-use super::bind_group::{create_bind_group_layout_config, create_bind_group_layout_texture};
+use super::bind_group::{config_bind_group_layout_create, texture_bind_group_layout_create};
 use super::constant::PUSH_CONSTANT_RANGE;
 
 const SHADER_PATH: &str = "shader/level.wgsl";
 
-pub fn create_pipeline_level(
+pub fn pipeline_level_create(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
@@ -18,8 +18,8 @@ pub fn create_pipeline_level(
         ),
     });
 
-    let texture_layout = create_bind_group_layout_texture(device);
-    let config_layout = create_bind_group_layout_config(device);
+    let texture_layout = texture_bind_group_layout_create(device);
+    let config_layout = config_bind_group_layout_create(device);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Level Pipeline Layout"),
@@ -33,7 +33,7 @@ pub fn create_pipeline_level(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[layout()],
+            buffers: &[model_layout()],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {

@@ -6,22 +6,23 @@ use parry3d::shape::TriMesh;
 
 use crate::audio::TrackData;
 use crate::graphics::model::Model;
-use crate::graphics::pipeline::level::PipelineLevelBindGroupTexture;
-use crate::graphics::storage::{MaterialIndexStorageBuffer, TextureIndexStorageBuffer};
 
 use super::manifest::LevelManifestMeta;
+use super::material::MaterialData;
 use super::portal::LevelPortal;
+
+pub struct LevelColliderData {
+    pub wall: TriMesh,
+    pub ladder: TriMesh,
+}
 
 pub struct LevelState {
     pub url: Url,
     pub meta: LevelManifestMeta,
     pub spawn: Vec3,
-    pub trimesh: TriMesh,
+    pub collider_data: LevelColliderData,
     pub model: Model,
-    pub texture_index: TextureIndexStorageBuffer,
-    pub material_index: MaterialIndexStorageBuffer,
-    pub texture_bind_group: PipelineLevelBindGroupTexture,
-    pub lightmap_texture_id: u32,
+    pub material_data: MaterialData,
     pub portals: HashMap<String, LevelPortal>,
     pub track: Option<TrackData>,
 }

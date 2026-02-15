@@ -3,28 +3,28 @@ use glam::{Mat3, Vec3};
 use super::state::PlayerState;
 use crate::config::Config;
 use crate::config::ConfigControl;
-use crate::window::{InputController, KeyState};
+use crate::window::{WindowContext, WindowKeyState};
 
-fn key_down(input: &InputController<'_>, config: &Config, control: ConfigControl) -> bool {
+fn key_down(window: &WindowContext<'_>, config: &Config, control: ConfigControl) -> bool {
     return matches!(
-        input.key(config.keycode_get(control)),
-        KeyState::Pressed | KeyState::Down
+        window.key(config.key_get(control)),
+        WindowKeyState::Pressed | WindowKeyState::Down
     );
 }
 
-pub fn player_wish_update(state: &mut PlayerState, input: &InputController<'_>, config: &Config) {
+pub fn player_wish_update(state: &mut PlayerState, window: &WindowContext<'_>, config: &Config) {
     let mut dir = Vec3::ZERO;
 
-    if key_down(input, config, ConfigControl::Forward) {
+    if key_down(window, config, ConfigControl::Forward) {
         dir.z -= 1.0;
     }
-    if key_down(input, config, ConfigControl::Back) {
+    if key_down(window, config, ConfigControl::Back) {
         dir.z += 1.0;
     }
-    if key_down(input, config, ConfigControl::StrafeRight) {
+    if key_down(window, config, ConfigControl::StrafeRight) {
         dir.x += 1.0;
     }
-    if key_down(input, config, ConfigControl::StrafeLeft) {
+    if key_down(window, config, ConfigControl::StrafeLeft) {
         dir.x -= 1.0;
     }
 
@@ -34,6 +34,6 @@ pub fn player_wish_update(state: &mut PlayerState, input: &InputController<'_>, 
         state.wish_direction = Vec3::ZERO;
     }
 
-    state.wish_jumping = key_down(input, config, ConfigControl::Jump);
-    state.wish_crouching = key_down(input, config, ConfigControl::Crouch);
+    state.wish_jumping = key_down(window, config, ConfigControl::Jump);
+    state.wish_crouching = key_down(window, config, ConfigControl::Crouch);
 }

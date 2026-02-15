@@ -1,18 +1,29 @@
 use glam::Vec3;
 
-use crate::gltf::GLTFMesh;
-use crate::graphics::color::Color;
+use crate::color::Color;
+use crate::gltf::GLTFVertex;
 
-use super::kind::PortalKind;
-use super::portal::PortalError;
+use super::kind::LevelPortalKind;
+
+#[derive(Debug)]
+pub enum LevelPortalGeometryFromGLTFError {
+    InsufficientVertices,
+    DegenerateGeometry,
+    NotCoplanar,
+    TiltedPortal,
+    InconsistentColors,
+    MissingAnchorColor,
+    AmbiguousAnchorColor,
+    UnstableAnchor,
+}
 
 #[derive(Debug, Clone)]
-pub struct PortalGeometry {
+pub struct LevelPortalGeometry {
     center: Vec3,
     normal: Vec3,
     yaw: f32,
     roll: f32,
-    kind: PortalKind,
+    kind: LevelPortalKind,
     fingerprint_points: Vec<(f32, f32)>,
 }
 
@@ -27,16 +38,16 @@ const ANGLE_EPSILON: f32 = 0.001;
 const LENGTH_EPSILON: f32 = 0.001;
 const ANCHOR_COLOR: Color = Color::MAGENTA;
 
-impl PortalGeometry {
+impl LevelPortalGeometry {
     pub fn new(
         center: Vec3,
         normal: Vec3,
         yaw: f32,
         roll: f32,
-        kind: PortalKind,
+        kind: LevelPortalKind,
         fingerprint_points: Vec<(f32, f32)>,
-    ) -> PortalGeometry {
-        return PortalGeometry {
+    ) -> LevelPortalGeometry {
+        return LevelPortalGeometry {
             center,
             normal,
             yaw,
@@ -46,17 +57,19 @@ impl PortalGeometry {
         };
     }
 
-    pub fn from_gltf(mesh: &GLTFMesh) -> Result<PortalGeometry, PortalError> {
+    pub fn from_gltf(
+        vertices: impl Iterator<Item = GLTFVertex>,
+    ) -> Result<LevelPortalGeometry, LevelPortalGeometryFromGLTFError> {
+        let vertices: Vec<GLTFVertex> = vertices.collect();
         let mut merged: Vec<MergedVertex> = Vec::new();
-        for i in 0..mesh.vertex_count() {
-            let vertex = mesh.vertex(i);
+        for vertex in &vertices {
             let existing = merged
                 .iter()
                 .find(|m| (m.position - vertex.position).length() < EPSILON);
 
             if let Some(existing) = existing {
                 if existing.color != vertex.color {
-                    return Err(PortalError::InconsistentColors);
+                    return Err(LevelPortalGeometryFromGLTFError::InconsistentColors);
                 }
             } else {
                 merged.push(MergedVertex {
@@ -67,31 +80,31 @@ impl PortalGeometry {
         }
 
         if merged.len() < 3 {
-            return Err(PortalError::InsufficientVertices);
+            return Err(LevelPortalGeometryFromGLTFError::InsufficientVertices);
         }
 
         let mut normal = None;
-        for tri in 0..(mesh.vertex_count() / 3) {
-            let a = mesh.vertex(tri * 3).position;
-            let b = mesh.vertex(tri * 3 + 1).position;
-            let c = mesh.vertex(tri * 3 + 2).position;
+        for tri in 0..(vertices.len() / 3) {
+            let a = vertices[tri * 3].position;
+            let b = vertices[tri * 3 + 1].position;
+            let c = vertices[tri * 3 + 2].position;
             let tri_normal = (b - a).cross(c - a);
             if tri_normal.length() > EPSILON {
                 normal = Some(tri_normal.normalize());
                 break;
             }
         }
-        let normal = normal.ok_or(PortalError::DegenerateGeometry)?;
+        let normal = normal.ok_or(LevelPortalGeometryFromGLTFError::DegenerateGeometry)?;
 
         if normal.is_nan() {
-            return Err(PortalError::DegenerateGeometry);
+            return Err(LevelPortalGeometryFromGLTFError::DegenerateGeometry);
         }
 
         let plane_point = merged[0].position;
         for v in &merged {
             let dist = (v.position - plane_point).dot(normal).abs();
             if dist > EPSILON {
-                return Err(PortalError::NotCoplanar);
+                return Err(LevelPortalGeometryFromGLTFError::NotCoplanar);
             }
         }
 
@@ -110,33 +123,33 @@ impl PortalGeometry {
                     }
                     Some(existing) => {
                         if (existing - v.position).length() > EPSILON {
-                            return Err(PortalError::AmbiguousAnchorColor);
+                            return Err(LevelPortalGeometryFromGLTFError::AmbiguousAnchorColor);
                         }
                     }
                 }
             }
         }
-        let anchor = anchor.ok_or(PortalError::MissingAnchorColor)?;
+        let anchor = anchor.ok_or(LevelPortalGeometryFromGLTFError::MissingAnchorColor)?;
         let anchor_to_center = center - anchor;
         if anchor_to_center.length() < EPSILON {
-            return Err(PortalError::UnstableAnchor);
+            return Err(LevelPortalGeometryFromGLTFError::UnstableAnchor);
         }
         let anchor_to_center = anchor_to_center.normalize();
 
         let kind = if normal.y.abs() < EPSILON {
-            PortalKind::Wall
+            LevelPortalKind::Wall
         } else if normal.y > 1.0 - EPSILON {
-            PortalKind::Floor
+            LevelPortalKind::Floor
         } else if normal.y < -1.0 + EPSILON {
-            PortalKind::Ceiling
+            LevelPortalKind::Ceiling
         } else {
-            return Err(PortalError::TiltedPortal);
+            return Err(LevelPortalGeometryFromGLTFError::TiltedPortal);
         };
 
         let reference_axis = kind.reference_axis();
         let reference_in_plane = reference_axis - normal * reference_axis.dot(normal);
         if reference_in_plane.length() < EPSILON {
-            return Err(PortalError::DegenerateGeometry);
+            return Err(LevelPortalGeometryFromGLTFError::DegenerateGeometry);
         }
         let reference_in_plane = reference_in_plane.normalize();
         let center_to_anchor = anchor - center;
@@ -146,7 +159,7 @@ impl PortalGeometry {
             .dot(reference_in_plane.cross(center_to_anchor))
             .atan2(reference_in_plane.dot(center_to_anchor));
 
-        let yaw = if kind == PortalKind::Wall {
+        let yaw = if kind == LevelPortalKind::Wall {
             normal.x.atan2(normal.z)
         } else {
             0.0
@@ -175,7 +188,7 @@ impl PortalGeometry {
             return angle_order;
         });
 
-        return Ok(PortalGeometry::new(
+        return Ok(LevelPortalGeometry::new(
             center,
             normal,
             yaw,
@@ -185,18 +198,18 @@ impl PortalGeometry {
         ));
     }
 
-    pub fn matches(&self, other: &PortalGeometry) -> bool {
+    pub fn matches(&self, other: &LevelPortalGeometry) -> bool {
         let kind_compatible = matches!(
             (self.kind, other.kind),
-            (PortalKind::Wall, PortalKind::Wall)
-                | (PortalKind::Floor, PortalKind::Ceiling)
-                | (PortalKind::Ceiling, PortalKind::Floor)
+            (LevelPortalKind::Wall, LevelPortalKind::Wall)
+                | (LevelPortalKind::Floor, LevelPortalKind::Ceiling)
+                | (LevelPortalKind::Ceiling, LevelPortalKind::Floor)
         );
         if !kind_compatible {
             return false;
         }
 
-        if self.kind == PortalKind::Wall && (self.roll - other.roll).abs() > ROLL_EPSILON {
+        if self.kind == LevelPortalKind::Wall && (self.roll - other.roll).abs() > ROLL_EPSILON {
             return false;
         }
 
@@ -238,7 +251,7 @@ impl PortalGeometry {
         return self.roll;
     }
 
-    pub fn kind(&self) -> PortalKind {
+    pub fn kind(&self) -> LevelPortalKind {
         return self.kind;
     }
 }

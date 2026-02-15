@@ -1,6 +1,6 @@
 use crate::graphics::texture::{
-    bind_group_entry_array, bind_group_layout_entry_array, sampler_bind_group_layout_entry,
-    Sampler, TextureArray,
+    sampler_bind_group_layout_entry, texture_array_binding_array_bind_group_entry,
+    texture_array_binding_array_bind_group_layout_entry, Sampler, TextureArray,
 };
 
 const BIND_GROUP_INDEX: u32 = 0;
@@ -45,12 +45,12 @@ pub const TEXTURE_BUCKETS: [TextureBucket; 6] = [
     },
 ];
 
-pub fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+pub fn texture_bind_group_layout_create(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     return device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Level Texture Bind Group Layout"),
         entries: &[
             sampler_bind_group_layout_entry(0),
-            bind_group_layout_entry_array(1, TEXTURE_BUCKETS.len() as u32),
+            texture_array_binding_array_bind_group_layout_entry(1, TEXTURE_BUCKETS.len() as u32),
         ],
     });
 }
@@ -61,7 +61,7 @@ pub struct PipelineLevelBindGroupTexture {
 
 impl PipelineLevelBindGroupTexture {
     pub fn new(device: &wgpu::Device, diffuse: &[TextureArray; TEXTURE_BUCKETS.len()]) -> Self {
-        let layout = create_bind_group_layout(device);
+        let layout = texture_bind_group_layout_create(device);
 
         let diffuse_sampler = Sampler::new(
             device,
@@ -77,7 +77,7 @@ impl PipelineLevelBindGroupTexture {
             layout: &layout,
             entries: &[
                 diffuse_sampler.bind_group_entry(0),
-                bind_group_entry_array(1, &views),
+                texture_array_binding_array_bind_group_entry(1, &views),
             ],
         });
 

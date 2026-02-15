@@ -1,6 +1,6 @@
 use image::RgbaImage;
 
-pub fn bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+pub fn texture_array_bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
@@ -13,7 +13,10 @@ pub fn bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-pub fn bind_group_layout_entry_array(binding: u32, count: u32) -> wgpu::BindGroupLayoutEntry {
+pub fn texture_array_binding_array_bind_group_layout_entry(
+    binding: u32,
+    count: u32,
+) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -26,7 +29,7 @@ pub fn bind_group_layout_entry_array(binding: u32, count: u32) -> wgpu::BindGrou
     }
 }
 
-pub fn bind_group_entry_array<'a>(
+pub fn texture_array_binding_array_bind_group_entry<'a>(
     binding: u32,
     views: &'a [&'a wgpu::TextureView],
 ) -> wgpu::BindGroupEntry<'a> {
@@ -39,7 +42,14 @@ pub fn bind_group_entry_array<'a>(
 pub struct TextureArray {
     texture: wgpu::Texture,
     dims: (u32, u32),
+    layers: usize,
     view: wgpu::TextureView,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TextureArrayWriteError {
+    DimensionsMismatch,
+    LayerOutOfBounds,
 }
 
 impl TextureArray {
@@ -71,6 +81,7 @@ impl TextureArray {
         Self {
             texture,
             dims: (width, height),
+            layers: size,
             view,
         }
     }
@@ -79,11 +90,20 @@ impl TextureArray {
         return &self.view;
     }
 
-    pub fn write_texture(&self, queue: &wgpu::Queue, index: usize, image: &RgbaImage) {
+    pub fn write(
+        &self,
+        queue: &wgpu::Queue,
+        index: usize,
+        image: &RgbaImage,
+    ) -> Result<(), TextureArrayWriteError> {
         let (width, height) = self.dims;
         let (w, h) = image.dimensions();
         if w != width || h != height {
-            panic!("Image dimensions ({w}, {h}) do not match expected ({width}, {height})");
+            return Err(TextureArrayWriteError::DimensionsMismatch);
+        }
+
+        if index >= self.layers {
+            return Err(TextureArrayWriteError::LayerOutOfBounds);
         }
 
         queue.write_texture(
@@ -109,6 +129,7 @@ impl TextureArray {
                 depth_or_array_layers: 1,
             },
         );
+        return Ok(());
     }
 
     pub fn bind_group_entry(&self, binding: u32) -> wgpu::BindGroupEntry<'_> {

@@ -3,7 +3,8 @@ mod depth;
 mod sampler;
 
 pub use array::{
-    bind_group_entry_array, bind_group_layout_entry, bind_group_layout_entry_array, TextureArray,
+    texture_array_bind_group_layout_entry, texture_array_binding_array_bind_group_entry,
+    texture_array_binding_array_bind_group_layout_entry, TextureArray,
 };
 pub use depth::TextureDepth;
 pub use sampler::{bind_group_layout_entry as sampler_bind_group_layout_entry, Sampler};

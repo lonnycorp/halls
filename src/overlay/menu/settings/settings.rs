@@ -1,17 +1,21 @@
 use glam::Vec2;
-use winit::keyboard::KeyCode;
+use winit::keyboard::{Key, NamedKey};
 
 use strum::{EnumCount, IntoEnumIterator};
 
-use crate::audio::Effect;
-use crate::graphics::model::ModelBuffer;
+use crate::audio::Track;
+use crate::graphics::model::ModelVertex;
 use crate::graphics::sprite::{SpriteBorder, TEXT_SIZE};
-use crate::window::{InputController, KeyState};
+use crate::window::{WindowContext, WindowKeyState};
 use crate::{Status, StatusBuffer};
 
 use crate::config::Config;
 
-use super::item::{MenuSettingsItem, MAX_ITEM_NAME_LEN, MAX_ITEM_VALUE_LEN};
+use super::item::{
+    MenuSettingsItem, MenuSettingsItemOnSelectParams, MenuSettingsItemUpdateParams,
+    MAX_ITEM_NAME_LEN, MAX_ITEM_VALUE_LEN,
+};
+use super::key::MenuSettingsKeyCache;
 
 const BORDER: f32 = 3.0;
 const TEXT_PADDING: f32 = 3.0;
@@ -27,14 +31,14 @@ const BOX_HEIGHT: f32 = ITEM_COUNT as f32 * TEXT_SIZE.y + INSET * 2.0;
 pub struct MenuSettingsState {
     pub hovered: usize,
     pub selected: bool,
-    pub buffered_state: Config,
+    pub buffered_config: Config,
     pub default_url: String,
     pub tick: u32,
 }
 
 impl MenuSettingsState {
     pub fn clear(&mut self, config: &Config) {
-        self.buffered_state = config.clone();
+        self.buffered_config = config.clone();
         self.default_url = config.default_url.to_string();
         self.hovered = 0;
         self.selected = false;
@@ -42,18 +46,19 @@ impl MenuSettingsState {
     }
 }
 
-pub struct MenuSettingsUpdateContext<'a> {
-    pub buffer: &'a mut ModelBuffer,
+pub struct MenuSettingsUpdateParams<'a> {
+    pub buffer: &'a mut Vec<ModelVertex>,
     pub resolution: Vec2,
-    pub input: &'a InputController<'a>,
+    pub window: &'a WindowContext<'a>,
     pub status: &'a mut StatusBuffer,
     pub config: &'a mut Config,
-    pub select_effect: &'a Effect,
-    pub move_effect: &'a Effect,
+    pub select_track: &'a Track,
+    pub move_track: &'a Track,
 }
 
 pub struct MenuSettings {
     state: MenuSettingsState,
+    key_cache: MenuSettingsKeyCache,
 }
 
 impl MenuSettings {
@@ -62,15 +67,16 @@ impl MenuSettings {
             state: MenuSettingsState {
                 hovered: 0,
                 selected: false,
-                buffered_state: config.clone(),
+                buffered_config: config.clone(),
                 default_url: config.default_url.to_string(),
                 tick: 0,
             },
+            key_cache: MenuSettingsKeyCache::new(),
         };
     }
 
-    pub fn update(&mut self, ctx: &mut MenuSettingsUpdateContext) {
-        if !matches!(ctx.status.get(), Status::MenuSettings) {
+    pub fn update(&mut self, params: &mut MenuSettingsUpdateParams) {
+        if !matches!(params.status.get(), Status::MenuSettings) {
             return;
         }
 
@@ -79,33 +85,46 @@ impl MenuSettings {
         let items: Vec<MenuSettingsItem> = MenuSettingsItem::iter().collect();
 
         if self.state.selected {
-            items[self.state.hovered].update(&mut self.state, ctx.input, ctx.move_effect);
+            items[self.state.hovered].update(&mut MenuSettingsItemUpdateParams {
+                state: &mut self.state,
+                window: params.window,
+                move_track: params.move_track,
+            });
         } else {
-            if let KeyState::Pressed = ctx.input.key(KeyCode::ArrowUp) {
+            if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::ArrowUp)) {
                 self.state.hovered = (self.state.hovered + ITEM_COUNT - 1) % ITEM_COUNT;
-                ctx.move_effect.reset();
-                ctx.move_effect.play();
-            } else if let KeyState::Pressed = ctx.input.key(KeyCode::ArrowDown) {
+                params.move_track.reset();
+                params.move_track.play();
+            } else if let WindowKeyState::Pressed =
+                params.window.key(&Key::Named(NamedKey::ArrowDown))
+            {
                 self.state.hovered = (self.state.hovered + 1) % ITEM_COUNT;
-                ctx.move_effect.reset();
-                ctx.move_effect.play();
+                params.move_track.reset();
+                params.move_track.play();
             }
 
-            if let KeyState::Pressed = ctx.input.key(KeyCode::Escape) {
-                ctx.move_effect.reset();
-                ctx.move_effect.play();
-                self.state.clear(ctx.config);
-                ctx.status.set(Status::MenuHome);
-            } else if let KeyState::Pressed = ctx.input.key(KeyCode::Enter) {
-                ctx.select_effect.reset();
-                ctx.select_effect.play();
-                items[self.state.hovered].on_select(&mut self.state, ctx.config, ctx.status);
+            if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Escape)) {
+                params.move_track.reset();
+                params.move_track.play();
+                self.state.clear(params.config);
+                params.status.set(Status::MenuHome);
+            } else if let WindowKeyState::Pressed = params.window.key(&Key::Named(NamedKey::Enter))
+            {
+                items[self.state.hovered].on_select(&mut MenuSettingsItemOnSelectParams {
+                    state: &mut self.state,
+                    config: params.config,
+                    status: params.status,
+                    select_track: params.select_track,
+                });
             }
         }
 
         let box_pos = Vec2::new(SCREEN_PADDING, SCREEN_PADDING);
-        SpriteBorder::new(box_pos, Vec2::new(BOX_WIDTH, BOX_HEIGHT))
-            .write_to_model_buffer(ctx.buffer, ctx.resolution);
+        params.buffer.extend(
+            SpriteBorder::new(box_pos, Vec2::new(BOX_WIDTH, BOX_HEIGHT))
+                .vertices()
+                .map(|vertex| vertex.to_model_vertex(params.resolution)),
+        );
 
         let content_x = box_pos.x + INSET;
         let content_y = box_pos.y + INSET;
@@ -114,13 +133,15 @@ impl MenuSettings {
             let y = content_y + i as f32 * TEXT_SIZE.y;
             let hovered = i == self.state.hovered;
             let active = hovered && self.state.selected;
-            item.write_to_model_buffer(
-                &self.state,
-                ctx.buffer,
-                ctx.resolution,
-                Vec2::new(content_x, y),
-                hovered,
-                active,
+            params.buffer.extend(
+                item.vertices(
+                    &self.state,
+                    &mut self.key_cache,
+                    Vec2::new(content_x, y),
+                    hovered,
+                    active,
+                )
+                .map(|vertex| vertex.to_model_vertex(params.resolution)),
             );
         }
     }

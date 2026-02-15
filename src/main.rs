@@ -2,12 +2,12 @@
 #![windows_subsystem = "windows"]
 
 mod audio;
+mod color;
 mod config;
 mod gltf;
 mod graphics;
 mod level;
 mod overlay;
-mod parry3d;
 mod player;
 mod window;
 
@@ -21,31 +21,28 @@ pub static ASSET: include_dir::Dir = include_dir!("$CARGO_MANIFEST_DIR/asset");
 pub const WINDOW_TITLE: &str = "Halls";
 
 use glam::{Mat4, Vec2, Vec4};
-use graphics::pipeline::level::create_pipeline_level;
-use graphics::pipeline::overlay::bind_group::PipelineOverlayBindGroupTexture;
-use graphics::pipeline::overlay::create_pipeline_overlay;
-use graphics::pipeline::portal::create_pipeline_portal;
+use graphics::pipeline::level::pipeline_level_create;
+use graphics::pipeline::overlay::bind_group::{
+    PipelineOverlayBindGroupConfig, PipelineOverlayBindGroupTexture,
+};
+use graphics::pipeline::overlay::pipeline_overlay_create;
+use graphics::pipeline::portal::pipeline_portal_create;
 use graphics::uniform::UniformCamera;
 
 use config::Config;
-use graphics::model::{Model, ModelBuffer};
+use graphics::model::{Model, ModelVertex};
 use graphics::render_target::RenderTarget;
 use level::cache::{LevelCache, LevelCacheResult};
-use level::render::{LevelRenderContext, LevelRenderContextState, LevelRenderSchema};
-use overlay::MenuHomeUpdateContext;
+use level::{LevelRenderParams, LevelRenderSchema, LevelRenderState};
+use overlay::MenuHomeUpdateParams;
 use player::Player;
-use window::{Event, GPUContext, Window, WindowHandler, WindowOnEventContext};
-use window::{InputController, KeyState};
-use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::KeyCode;
+use window::WindowKeyState;
+use window::{Window, WindowContext, WindowHandler, WindowHandlerEvent};
+use winit::keyboard::{Key, NamedKey};
 
 pub const SIM_STEP: Duration = Duration::from_millis(10);
-pub const FONT_TEXTURE_INDEX: usize = 0;
-pub const SYSTEM_TEXTURE_INDEX: usize = 1;
 pub const TARGET_WIDTH: f32 = 1280.0;
 
-const TEXT_TEXTURE_PATH: &str = "texture/text.png";
-const SYSTEM_TEXTURE_PATH: &str = "texture/system.png";
 const JINGLE_AUDIO_PATH: &str = "audio/jingle.wav";
 const SELECT_AUDIO_PATH: &str = "audio/select.wav";
 const MOVE_AUDIO_PATH: &str = "audio/move.wav";
@@ -95,8 +92,9 @@ struct State {
     pipeline_portal: wgpu::RenderPipeline,
     pipeline_overlay: wgpu::RenderPipeline,
     depth_texture: graphics::texture::TextureDepth,
-    overlay_bind_group: PipelineOverlayBindGroupTexture,
-    overlay_buffer: ModelBuffer,
+    overlay_bind_group_texture: PipelineOverlayBindGroupTexture,
+    overlay_bind_group_config: PipelineOverlayBindGroupConfig,
+    overlay_buffer: Vec<ModelVertex>,
     overlay_model: Model,
     intro: overlay::Intro,
     menu: overlay::MenuHome,
@@ -109,11 +107,11 @@ struct State {
     cache: LevelCache,
     _audio_stream: OutputStream,
     master_sink: Sink,
-    jukebox: audio::Jukebox,
-    jingle_effect: audio::Effect,
-    select_effect: audio::Effect,
-    move_effect: audio::Effect,
-    walk_effect: audio::Effect,
+    cross_fader: audio::CrossFader,
+    jingle_track: audio::Track,
+    select_track: audio::Track,
+    move_track: audio::Track,
+    walk_track: audio::Track,
     player: Player,
     last_update: Instant,
 }
@@ -124,70 +122,66 @@ struct Halls {
 
 fn create_render_targets(
     device: &wgpu::Device,
-    size: (u32, u32),
+    size: Vec2,
     format: wgpu::TextureFormat,
     count: usize,
 ) -> Vec<RenderTarget> {
+    let width = size.x as u32;
+    let height = size.y as u32;
+
     return (0..count)
-        .map(|_| RenderTarget::new(device, size, format))
+        .map(|_| RenderTarget::new(device, (width, height), format))
         .collect();
 }
 
-fn update<'a>(
-    state: &mut State,
-    gpu: &mut GPUContext,
-    input: &mut InputController<'a>,
-    event_loop: &ActiveEventLoop,
-) {
-    let input_ref: &InputController<'a> = input;
-
+fn update(state: &mut State, ctx: &mut WindowContext<'_>) {
     state.master_sink.set_volume(state.config.volume);
     state.status.swap();
     state.cache.update();
-    state.jukebox.update(&state.player, &mut state.cache);
+    state.cross_fader.update(&state.player, &mut state.cache);
 
-    let (width, height) = gpu.size();
-    let scale = (width as f32 / TARGET_WIDTH).floor().max(1.0);
-    let resolution = Vec2::new(width as f32, height as f32) / scale;
+    let size = ctx.size();
+    let scale = (size.x / TARGET_WIDTH).floor().max(1.0);
+    let resolution = size / scale;
+
     state.overlay_buffer.clear();
-    state.intro.update(&mut overlay::IntroUpdateContext {
+    state.intro.update(&mut overlay::IntroUpdateParams {
         buffer: &mut state.overlay_buffer,
         resolution,
-        input: input_ref,
+        window: ctx,
         status: &mut state.status,
-        jingle_effect: &state.jingle_effect,
+        jingle_track: &state.jingle_track,
     });
-    state.menu.update(&mut MenuHomeUpdateContext {
-        event_loop,
+    state.menu.update(&mut MenuHomeUpdateParams {
         buffer: &mut state.overlay_buffer,
         resolution,
-        input: input_ref,
+        window: ctx,
         status: &mut state.status,
-        select_effect: &state.select_effect,
-        move_effect: &state.move_effect,
+        select_track: &state.select_track,
+        move_track: &state.move_track,
     });
     state
         .menu_settings
-        .update(&mut overlay::MenuSettingsUpdateContext {
+        .update(&mut overlay::MenuSettingsUpdateParams {
             buffer: &mut state.overlay_buffer,
             resolution,
-            input: input_ref,
+            window: ctx,
             status: &mut state.status,
             config: &mut state.config,
-            select_effect: &state.select_effect,
-            move_effect: &state.move_effect,
+            select_track: &state.select_track,
+            move_track: &state.move_track,
         });
     state
         .menu_visit
-        .update(&mut overlay::MenuVisitUpdateContext {
+        .update(&mut overlay::MenuVisitUpdateParams {
             buffer: &mut state.overlay_buffer,
             resolution,
-            input: input_ref,
+            window: ctx,
             status: &mut state.status,
             player: &mut state.player,
             cache: &mut state.cache,
-            select_effect: &state.select_effect,
-            move_effect: &state.move_effect,
+            select_track: &state.select_track,
+            move_track: &state.move_track,
         });
     match state.status.get() {
         Status::MenuHome | Status::MenuVisit | Status::MenuSettings => {
@@ -200,36 +194,36 @@ fn update<'a>(
         }
         _ => {}
     }
+
     state
         .overlay_model
-        .upload(&gpu.queue, &state.overlay_buffer);
+        .upload(ctx.queue(), &state.overlay_buffer)
+        .unwrap();
     if matches!(state.status.get(), Status::Simulation) {
-        if let KeyState::Pressed = input_ref.key(KeyCode::Escape) {
-            state.move_effect.reset();
-            state.move_effect.play();
-            state.walk_effect.pause();
+        if let WindowKeyState::Pressed = ctx.key(&Key::Named(NamedKey::Escape)) {
+            state.move_track.reset();
+            state.move_track.play();
+            state.walk_track.pause();
             state.status.set(Status::MenuHome);
         } else {
-            state
-                .player
-                .update(input_ref, &mut state.cache, &state.config);
+            state.player.update(ctx, &mut state.cache, &state.config);
             if state.player.is_walking() {
-                state.walk_effect.play();
+                state.walk_track.play();
             }
         }
     }
 
     if !state.player.is_walking() {
-        state.walk_effect.pause();
+        state.walk_track.pause();
     }
-    input.reset();
+    ctx.input_reset();
     state.tick = state.tick.wrapping_add(1);
 }
 
-fn render(state: &mut State, gpu: &GPUContext) {
-    let output = gpu.current_texture();
+fn render(state: &mut State, ctx: &WindowContext<'_>) {
+    let output = ctx.current_texture();
     let color_view = output.texture.create_view(&Default::default());
-    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    let mut encoder = ctx.device().create_command_encoder(&Default::default());
 
     {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -256,11 +250,11 @@ fn render(state: &mut State, gpu: &GPUContext) {
         if let LevelCacheResult::Ready(level) = state.cache.get(level_url) {
             let eye = state.player.eye_position();
             let rot = state.player.rotation();
-            let mut render_ctx_state = LevelRenderContextState::default();
+            let mut render_ctx_state = LevelRenderState::default();
 
-            level.render(LevelRenderContext {
-                device: &gpu.device,
-                queue: &gpu.queue,
+            level.render(LevelRenderParams {
+                device: ctx.device(),
+                queue: ctx.queue(),
                 encoder: &mut encoder,
                 camera: &state.camera,
                 tick: state.tick,
@@ -299,12 +293,13 @@ fn render(state: &mut State, gpu: &GPUContext) {
             ..Default::default()
         });
 
-        state.overlay_bind_group.bind(&mut rp);
         rp.set_pipeline(&state.pipeline_overlay);
+        state.overlay_bind_group_texture.bind(&mut rp);
+        state.overlay_bind_group_config.bind(&mut rp);
         state.overlay_model.draw(&mut rp);
     }
 
-    gpu.queue.submit([encoder.finish()]);
+    ctx.queue().submit([encoder.finish()]);
     output.present();
 }
 
@@ -315,84 +310,77 @@ impl Halls {
 }
 
 impl WindowHandler for Halls {
-    fn on_event(&mut self, ctx: &mut WindowOnEventContext<'_>, event: Event) {
+    fn on_event(&mut self, ctx: &mut WindowContext<'_>, event: WindowHandlerEvent) {
         match event {
-            Event::Resume => {
+            WindowHandlerEvent::Resume => {
                 let config = Config::load();
+                let size = ctx.size();
 
-                let pipeline_level = create_pipeline_level(&ctx.gpu.device, ctx.gpu.format());
-                let pipeline_portal = create_pipeline_portal(&ctx.gpu.device, ctx.gpu.format());
-                let pipeline_overlay = create_pipeline_overlay(&ctx.gpu.device, ctx.gpu.format());
+                let pipeline_level = pipeline_level_create(ctx.device(), ctx.format());
+                let pipeline_portal = pipeline_portal_create(ctx.device(), ctx.format());
+                let pipeline_overlay = pipeline_overlay_create(ctx.device(), ctx.format());
 
-                let (width, height) = ctx.gpu.size();
-                let depth_texture =
-                    graphics::texture::TextureDepth::new(&ctx.gpu.device, width, height);
-
-                let text_image =
-                    image::load_from_memory(ASSET.get_file(TEXT_TEXTURE_PATH).unwrap().contents())
-                        .unwrap()
-                        .to_rgba8();
-                let system_image = image::load_from_memory(
-                    ASSET.get_file(SYSTEM_TEXTURE_PATH).unwrap().contents(),
-                )
-                .unwrap()
-                .to_rgba8();
-                let overlay_texture =
-                    graphics::texture::TextureArray::new(&ctx.gpu.device, (512, 512), 2);
-                overlay_texture.write_texture(&ctx.gpu.queue, FONT_TEXTURE_INDEX, &text_image);
-                overlay_texture.write_texture(&ctx.gpu.queue, SYSTEM_TEXTURE_INDEX, &system_image);
-                let overlay_bind_group = PipelineOverlayBindGroupTexture::new(
-                    &ctx.gpu.device,
-                    &overlay_texture,
-                    wgpu::FilterMode::Nearest,
+                let depth_texture = graphics::texture::TextureDepth::new(
+                    ctx.device(),
+                    size.x as u32,
+                    size.y as u32,
                 );
-                let overlay_buffer = ModelBuffer::new();
-                let overlay_model = Model::new(&ctx.gpu.device, 50_000);
+
+                let overlay_bind_group_texture =
+                    PipelineOverlayBindGroupTexture::new(ctx.device(), ctx.queue());
+                let overlay_bind_group_config =
+                    PipelineOverlayBindGroupConfig::new(ctx.device(), ctx.queue());
+                let overlay_buffer: Vec<ModelVertex> = Vec::new();
+                let overlay_model = Model::new(ctx.device(), 50_000);
                 let intro = overlay::Intro::new();
                 let menu = overlay::MenuHome::new();
                 let menu_settings = overlay::MenuSettings::new(&config);
                 let menu_visit = overlay::MenuVisit::new(&config);
 
-                let camera = UniformCamera::new(&ctx.gpu.device, 64);
+                let camera = UniformCamera::new(ctx.device(), 64);
                 let projection =
-                    Mat4::perspective_rh(75f32.to_radians(), ctx.gpu.aspect(), 0.05, 1000.0);
+                    Mat4::perspective_rh(75f32.to_radians(), size.x / size.y, 0.05, 1000.0);
 
-                let render_targets =
-                    create_render_targets(&ctx.gpu.device, ctx.gpu.size(), ctx.gpu.format(), 6);
+                let render_targets = create_render_targets(ctx.device(), size, ctx.format(), 6);
 
                 let mut cache =
-                    LevelCache::new(Arc::clone(&ctx.gpu.device), Arc::clone(&ctx.gpu.queue), 8);
+                    LevelCache::new(Arc::clone(ctx.device()), Arc::clone(ctx.queue()), 8);
                 cache.get(&config.default_url);
 
                 let (_audio_stream, audio) = OutputStream::try_default().unwrap();
                 let (mixer_ctrl, mixer_src) = rodio::dynamic_mixer::mixer::<f32>(2, 44100);
                 let master_sink = Sink::try_new(&audio).unwrap();
                 master_sink.append(mixer_src);
-                let jukebox = audio::Jukebox::new(&mixer_ctrl);
-                let jingle_track = audio::TrackData::new(
+                let mut cross_fader = audio::CrossFader::new();
+                mixer_ctrl.add(cross_fader.source());
+                let jingle_track_data = audio::TrackData::new(
                     ASSET.get_file(JINGLE_AUDIO_PATH).unwrap().contents(),
                     false,
                 )
                 .unwrap();
-                let jingle_effect = audio::Effect::new(&mixer_ctrl, jingle_track);
-                let select_track = audio::TrackData::new(
+                let jingle_track = audio::Track::new(jingle_track_data);
+                mixer_ctrl.add(jingle_track.source());
+                let select_track_data = audio::TrackData::new(
                     ASSET.get_file(SELECT_AUDIO_PATH).unwrap().contents(),
                     false,
                 )
                 .unwrap();
-                let select_effect = audio::Effect::new(&mixer_ctrl, select_track);
-                let move_track = audio::TrackData::new(
+                let select_track = audio::Track::new(select_track_data);
+                mixer_ctrl.add(select_track.source());
+                let move_track_data = audio::TrackData::new(
                     ASSET.get_file(MOVE_AUDIO_PATH).unwrap().contents(),
                     false,
                 )
                 .unwrap();
-                let move_effect = audio::Effect::new(&mixer_ctrl, move_track);
-                let walk_track = audio::TrackData::new(
+                let move_track = audio::Track::new(move_track_data);
+                mixer_ctrl.add(move_track.source());
+                let walk_track_data = audio::TrackData::new(
                     ASSET.get_file(WALK_AUDIO_PATH).unwrap().contents(),
                     true,
                 )
                 .unwrap();
-                let walk_effect = audio::Effect::new(&mixer_ctrl, walk_track);
+                let walk_track = audio::Track::new(walk_track_data);
+                mixer_ctrl.add(walk_track.source());
                 let player = Player::new(glam::Vec3::ZERO);
                 let last_update = Instant::now();
 
@@ -403,7 +391,8 @@ impl WindowHandler for Halls {
                     pipeline_portal,
                     pipeline_overlay,
                     depth_texture,
-                    overlay_bind_group,
+                    overlay_bind_group_texture,
+                    overlay_bind_group_config,
                     overlay_buffer,
                     overlay_model,
                     intro,
@@ -417,33 +406,34 @@ impl WindowHandler for Halls {
                     cache,
                     _audio_stream,
                     master_sink,
-                    jukebox,
-                    jingle_effect,
-                    select_effect,
-                    move_effect,
-                    walk_effect,
+                    cross_fader,
+                    jingle_track,
+                    select_track,
+                    move_track,
+                    walk_track,
                     player,
                     last_update,
                 });
             }
-            Event::Resize { width, height } => {
+            WindowHandlerEvent::Resize => {
                 let Some(ref mut state) = self.state else {
                     return;
                 };
-                if width > 0 && height > 0 {
-                    state.depth_texture =
-                        graphics::texture::TextureDepth::new(&ctx.gpu.device, width, height);
-                    state.render_targets = create_render_targets(
-                        &ctx.gpu.device,
-                        (width, height),
-                        ctx.gpu.format(),
-                        6,
+
+                let size = ctx.size();
+                if size.x > 0.0 && size.y > 0.0 {
+                    state.depth_texture = graphics::texture::TextureDepth::new(
+                        ctx.device(),
+                        size.x as u32,
+                        size.y as u32,
                     );
+                    state.render_targets =
+                        create_render_targets(ctx.device(), size, ctx.format(), 6);
                     state.projection =
-                        Mat4::perspective_rh(75f32.to_radians(), ctx.gpu.aspect(), 0.05, 1000.0);
+                        Mat4::perspective_rh(75f32.to_radians(), size.x / size.y, 0.05, 1000.0);
                 }
             }
-            Event::Redraw => {
+            WindowHandlerEvent::Redraw => {
                 let Some(ref mut state) = self.state else {
                     return;
                 };
@@ -452,10 +442,10 @@ impl WindowHandler for Halls {
                     state.last_update = now;
                 }
                 while state.last_update.elapsed() >= SIM_STEP {
-                    update(state, ctx.gpu, &mut ctx.input, ctx.event_loop);
+                    update(state, ctx);
                     state.last_update += SIM_STEP;
                 }
-                render(state, ctx.gpu);
+                render(state, ctx);
             }
         }
     }

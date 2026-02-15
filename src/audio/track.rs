@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use rodio::Source;
 
-use super::data::{TrackData, TrackDataSource};
+use super::data::TrackData;
 
 struct TrackState {
     paused: bool,
@@ -18,9 +18,10 @@ pub struct Track {
 }
 
 pub struct TrackSource {
-    data: TrackData,
     state: Arc<Mutex<TrackState>>,
-    source: TrackDataSource,
+    samples: Arc<[f32]>,
+    pos: usize,
+    repeat: bool,
     generation: u64,
     channels: u16,
     sample_rate: u32,
@@ -31,7 +32,7 @@ impl Track {
         return Self {
             data,
             state: Arc::new(Mutex::new(TrackState {
-                paused: false,
+                paused: true,
                 volume: 1.0,
                 dropped: false,
                 generation: 0,
@@ -42,16 +43,17 @@ impl Track {
     pub fn source(&self) -> TrackSource {
         let generation = self.state.lock().unwrap().generation;
         return TrackSource {
-            data: self.data.clone(),
             state: Arc::clone(&self.state),
-            source: self.data.source(),
+            samples: self.data.samples(),
+            pos: 0,
+            repeat: self.data.repeat(),
             generation,
             channels: self.data.channels(),
             sample_rate: self.data.sample_rate(),
         };
     }
 
-    pub fn set_volume(&self, volume: f32) {
+    pub fn volume_set(&self, volume: f32) {
         self.state.lock().unwrap().volume = volume;
     }
 
@@ -80,28 +82,31 @@ impl Iterator for TrackSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        let (dropped, paused, volume, generation) = {
-            let state = self.state.lock().unwrap();
-            (state.dropped, state.paused, state.volume, state.generation)
-        };
+        let state = self.state.lock().unwrap();
 
-        if dropped {
+        if state.dropped {
             return None;
         }
 
-        if generation != self.generation {
-            self.source = self.data.source();
-            self.generation = generation;
+        if state.generation != self.generation {
+            self.pos = 0;
+            self.generation = state.generation;
         }
 
-        if paused {
+        if state.paused {
             return Some(0.0);
         }
 
-        return match self.source.next() {
-            Some(sample) => Some(sample * volume),
-            None => Some(0.0),
-        };
+        if self.pos >= self.samples.len() {
+            if !self.repeat {
+                return Some(0.0);
+            }
+            self.pos = 0;
+        }
+
+        let sample = self.samples[self.pos];
+        self.pos += 1;
+        return Some(sample * state.volume);
     }
 }
 

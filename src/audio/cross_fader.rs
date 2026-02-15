@@ -1,4 +1,4 @@
-use rodio::dynamic_mixer::DynamicMixerController;
+use rodio::dynamic_mixer::{DynamicMixer, DynamicMixerController};
 use url::Url;
 
 use super::{Track, TrackData};
@@ -9,22 +9,23 @@ const RAMP_SPEED: f32 = 0.05;
 const MIXER_CHANNELS: u16 = 2;
 const MIXER_SAMPLE_RATE: u32 = 44100;
 
-pub struct Jukebox {
+pub struct CrossFader {
     mixer: std::sync::Arc<DynamicMixerController<f32>>,
+    source: Option<DynamicMixer<f32>>,
     tracks: [Option<Track>; 2],
     current: Option<usize>,
     volumes: [f32; 2],
     level_url: Option<Url>,
 }
 
-impl Jukebox {
-    pub fn new(mixer: &DynamicMixerController<f32>) -> Self {
+impl CrossFader {
+    pub fn new() -> Self {
         let (local_mixer, local_source) =
             rodio::dynamic_mixer::mixer::<f32>(MIXER_CHANNELS, MIXER_SAMPLE_RATE);
-        mixer.add(local_source);
 
         return Self {
             mixer: local_mixer,
+            source: Some(local_source),
             tracks: [None, None],
             current: None,
             volumes: [0.0, 0.0],
@@ -32,14 +33,18 @@ impl Jukebox {
         };
     }
 
-    fn fade_in(&mut self, track_data: TrackData) {
+    pub fn source(&mut self) -> DynamicMixer<f32> {
+        return self.source.take().unwrap();
+    }
+
+    fn track_fade_in(&mut self, track_data: TrackData) {
         let next = match self.current {
             Some(current) => (current + 1) % 2,
             None => 0,
         };
 
         let track = Track::new(track_data);
-        track.set_volume(0.0);
+        track.volume_set(0.0);
         track.play();
         self.mixer.add(track.source());
 
@@ -48,7 +53,7 @@ impl Jukebox {
         self.current = Some(next);
     }
 
-    fn fade_out(&mut self) {
+    fn track_fade_out(&mut self) {
         self.current = None;
     }
 
@@ -59,14 +64,14 @@ impl Jukebox {
                     let player_url = player_url.clone();
                     if let LevelCacheResult::Ready(level) = cache.get(&player_url) {
                         match level.track() {
-                            Some(track) => self.fade_in(track.clone()),
-                            None => self.fade_out(),
+                            Some(track) => self.track_fade_in(track.clone()),
+                            None => self.track_fade_out(),
                         }
                         self.level_url = Some(player_url);
                     }
                 }
                 None => {
-                    self.fade_out();
+                    self.track_fade_out();
                     self.level_url = None;
                 }
             }
@@ -78,7 +83,7 @@ impl Jukebox {
             self.volumes[i] += delta;
 
             if let Some(track) = self.tracks[i].as_ref() {
-                track.set_volume(self.volumes[i]);
+                track.volume_set(self.volumes[i]);
             }
 
             if self.current != Some(i) && self.volumes[i] <= 0.0 {

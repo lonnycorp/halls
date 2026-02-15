@@ -19,12 +19,12 @@ const CLEAR_COLOR: wgpu::Color = wgpu::Color {
 };
 
 #[derive(Default)]
-pub struct LevelRenderContextState {
+pub struct LevelRenderState {
     pub camera: u32,
     pub render_target: u32,
 }
 
-pub struct LevelRenderContext<'a> {
+pub struct LevelRenderParams<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
     pub encoder: &'a mut wgpu::CommandEncoder,
@@ -33,7 +33,7 @@ pub struct LevelRenderContext<'a> {
     pub projection: Mat4,
     pub render_targets: &'a [RenderTarget],
     pub cache: &'a mut LevelCache,
-    pub state: &'a mut LevelRenderContextState,
+    pub state: &'a mut LevelRenderState,
     pub pipeline_level: &'a wgpu::RenderPipeline,
     pub pipeline_portal: &'a wgpu::RenderPipeline,
     pub color_view: &'a wgpu::TextureView,
@@ -56,94 +56,75 @@ pub enum LevelRenderSchema {
     Other,
 }
 
-pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
-    let LevelRenderContext {
-        device,
-        queue,
-        encoder,
-        camera,
-        tick,
-        projection,
-        render_targets,
-        cache,
-        state: render_state,
-        pipeline_level,
-        pipeline_portal,
-        color_view,
-        depth_view,
-        eye,
-        player_rotation,
-        clip,
-        schema,
-        skip_portal,
-    } = ctx;
-    // Create bind groups for this frame
+pub fn level_render(level_state: &LevelState, params: LevelRenderParams) {
+    let material_data = &level_state.material_data;
     let level_bind_group_config = PipelineLevelBindGroupConfig::new(
-        device,
-        camera,
-        &state.texture_index,
-        &state.material_index,
+        params.device,
+        params.camera,
+        &material_data.material_index,
     );
-    let portal_bind_group_config = PipelinePortalBindGroupConfig::new(device, camera);
+    let portal_bind_group_config = PipelinePortalBindGroupConfig::new(params.device, params.camera);
 
-    // Pass 1: Draw level geometry
     let mut camera_data = UniformCameraData::new();
-    camera_data.projection = projection;
-    camera_data.clip_plane = clip;
-    camera_data.set_view(eye, player_rotation);
-    let camera_offset = camera.write(queue, render_state.camera, &camera_data);
-    render_state.camera += 1;
+    camera_data.projection = params.projection;
+    camera_data.clip_plane = params.clip;
+    camera_data.view_set(params.eye, params.player_rotation);
+    let camera_offset = params
+        .camera
+        .write(params.queue, params.state.camera, &camera_data);
+    params.state.camera += 1;
 
     {
-        let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(CLEAR_COLOR),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
+        let mut rp = params
+            .encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: params.color_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(CLEAR_COLOR),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: params.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
+                ..Default::default()
+            });
 
-        rp.set_pipeline(pipeline_level);
-        state.texture_bind_group.bind(&mut rp);
+        rp.set_pipeline(params.pipeline_level);
+        material_data.texture_bind_group.bind(&mut rp);
         level_bind_group_config.bind(&mut rp, camera_offset);
-        bind_level_constants(&mut rp, tick, state.lightmap_texture_id);
-        state.model.draw(&mut rp);
+        bind_level_constants(&mut rp, params.tick, material_data.lightmap_material_id);
+        level_state.model.draw(&mut rp);
     }
 
-    let rt = &render_targets[render_state.render_target as usize];
-    let portal_texture_bind_group = PipelinePortalBindGroupTexture::new(device, rt);
-    render_state.render_target += 1;
+    let rt = &params.render_targets[params.state.render_target as usize];
+    let portal_texture_bind_group = PipelinePortalBindGroupTexture::new(params.device, rt);
+    params.state.render_target += 1;
 
-    // Interleaved portal rendering
-    for (name, src_portal) in state.portals.iter() {
-        if skip_portal == Some(name.as_str()) {
+    for (name, src_portal) in level_state.portals.iter() {
+        if params.skip_portal == Some(name.as_str()) {
             continue;
         }
-        let link = src_portal.link(cache);
+        let link = src_portal.link(params.cache);
 
         let (open_factor, recurse_schema) = if let Some(link) = &link {
-            let portal_matches = match &schema {
+            let portal_matches = match &params.schema {
                 LevelRenderSchema::Current {
                     last_portal: Some((url, portal)),
                     ..
-                } => url == link.url() && portal == link.portal_name(),
+                } => url == link.url() && portal == link.name(),
                 _ => false,
             };
 
-            match &schema {
+            match &params.schema {
                 &LevelRenderSchema::Current { open_factor, .. } if portal_matches => (
                     1.0,
                     Some(LevelRenderSchema::Last {
@@ -167,41 +148,43 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
         let dst_level =
             link.as_ref()
                 .zip(recurse_schema.as_ref())
-                .and_then(|(link, _)| match cache.get(link.url()) {
+                .and_then(|(link, _)| match params.cache.get(link.url()) {
                     LevelCacheResult::Ready(level) => Some(level),
                     _ => None,
                 });
 
         if let (Some(next_schema), Some(dst_level)) = (recurse_schema, dst_level) {
-            // Render destination to render target from pool
             let link = link.unwrap();
             let src_geometry = src_portal.geometry();
 
             let yaw_delta = link.yaw_delta();
             let dst_normal = link.dst_normal();
-            let eye_side = (eye - src_geometry.center())
+            let eye_side = (params.eye - src_geometry.center())
                 .dot(src_geometry.normal())
                 .signum();
             let clip_normal = dst_normal * eye_side;
 
             level_render(
                 &dst_level.state,
-                LevelRenderContext {
-                    device,
-                    queue,
-                    encoder,
-                    camera,
-                    tick,
-                    projection,
-                    render_targets,
-                    cache,
-                    state: render_state,
-                    pipeline_level,
-                    pipeline_portal,
+                LevelRenderParams {
+                    device: params.device,
+                    queue: params.queue,
+                    encoder: &mut *params.encoder,
+                    camera: params.camera,
+                    tick: params.tick,
+                    projection: params.projection,
+                    render_targets: params.render_targets,
+                    cache: &mut *params.cache,
+                    state: &mut *params.state,
+                    pipeline_level: params.pipeline_level,
+                    pipeline_portal: params.pipeline_portal,
                     color_view: rt.color_view(),
                     depth_view: rt.depth_view(),
-                    eye: link.transform_position(eye, false),
-                    player_rotation: Vec2::new(player_rotation.x, player_rotation.y + yaw_delta),
+                    eye: link.position_transform(params.eye, false),
+                    player_rotation: Vec2::new(
+                        params.player_rotation.x,
+                        params.player_rotation.y + yaw_delta,
+                    ),
                     clip: Vec4::new(
                         clip_normal.x,
                         clip_normal.y,
@@ -209,78 +192,86 @@ pub(super) fn level_render(state: &LevelState, ctx: LevelRenderContext) {
                         -clip_normal.dot(link.dst_center()),
                     ),
                     schema: next_schema,
-                    skip_portal: Some(link.portal_name()),
+                    skip_portal: Some(link.name()),
                 },
             );
 
-            // Draw portal quad with RT texture
             let mut camera_data = UniformCameraData::new();
-            camera_data.projection = projection;
-            camera_data.clip_plane = clip;
-            camera_data.set_view(eye, player_rotation);
-            let camera_offset = camera.write(queue, render_state.camera, &camera_data);
-            render_state.camera += 1;
+            camera_data.projection = params.projection;
+            camera_data.clip_plane = params.clip;
+            camera_data.view_set(params.eye, params.player_rotation);
+            let camera_offset =
+                params
+                    .camera
+                    .write(params.queue, params.state.camera, &camera_data);
+            params.state.camera += 1;
 
             {
-                let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: color_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
+                let mut rp = params
+                    .encoder
+                    .begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: params.color_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: params.depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
                         }),
-                        stencil_ops: None,
-                    }),
-                    ..Default::default()
-                });
+                        ..Default::default()
+                    });
 
-                rp.set_pipeline(pipeline_portal);
+                rp.set_pipeline(params.pipeline_portal);
                 portal_texture_bind_group.bind(&mut rp);
                 portal_bind_group_config.bind(&mut rp, camera_offset);
                 bind_portal_constants(&mut rp, open_factor);
                 src_portal.draw(&mut rp);
             }
         } else {
-            // Draw portal as black (no recursion available)
             let mut camera_data = UniformCameraData::new();
-            camera_data.projection = projection;
-            camera_data.clip_plane = clip;
-            camera_data.set_view(eye, player_rotation);
-            let camera_offset = camera.write(queue, render_state.camera, &camera_data);
-            render_state.camera += 1;
+            camera_data.projection = params.projection;
+            camera_data.clip_plane = params.clip;
+            camera_data.view_set(params.eye, params.player_rotation);
+            let camera_offset =
+                params
+                    .camera
+                    .write(params.queue, params.state.camera, &camera_data);
+            params.state.camera += 1;
 
             {
-                let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: color_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
+                let mut rp = params
+                    .encoder
+                    .begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: params.color_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: params.depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
                         }),
-                        stencil_ops: None,
-                    }),
-                    ..Default::default()
-                });
+                        ..Default::default()
+                    });
 
-                rp.set_pipeline(pipeline_portal);
+                rp.set_pipeline(params.pipeline_portal);
                 portal_texture_bind_group.bind(&mut rp);
                 portal_bind_group_config.bind(&mut rp, camera_offset);
                 bind_portal_constants(&mut rp, 0.0);
