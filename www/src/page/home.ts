@@ -10,7 +10,7 @@ function createScreenshotGrid(): component.ImageGrid {
         .image(DEKU_IMAGE.publicPath, "The moon from Majora's mask appearing over Kokiri forest.")
         .image(DUST_DOOM_IMAGE.publicPath, "Doom's Hangar opening up to de_dust2.")
         .image(DUST_NUKE_IMAGE.publicPath, "A shaft linking de_dust2 and de_nuke.")
-        .image(NUKE_BLOCKFORT_IMAGE.publicPath, "Blockfort from Mario 64 - now accessible from de_nuke.")
+        .image(NUKE_BLOCKFORT_IMAGE.publicPath, "Blockfort from Mario Kart 64 - now accessible from de_nuke.")
 }
 
 function createOverview(): node.Element {
